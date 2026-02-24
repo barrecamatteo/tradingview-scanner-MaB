@@ -10,6 +10,21 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timezone
 
+# Load Streamlit Cloud secrets into environment variables
+try:
+    for key in ["SUPABASE_URL", "SUPABASE_KEY", "TV_USERNAME", "TV_PASSWORD"]:
+        if key in st.secrets and not os.getenv(key):
+            os.environ[key] = st.secrets[key]
+except Exception:
+    pass
+
+# Load .env file for local development
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
