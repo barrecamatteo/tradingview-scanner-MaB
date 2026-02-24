@@ -4,12 +4,11 @@ TradingView Continuation Rate Scanner - Streamlit Web App
 
 import os
 import sys
-import time
 import logging
 import requests
 import pandas as pd
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 
 # Load Streamlit Cloud secrets into environment variables
 try:
@@ -37,14 +36,12 @@ st.set_page_config(
     page_title="TV Continuation Rate Scanner",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# ── Logging ───────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── GitHub Actions Config ─────────────────────────────────────────────────
 GITHUB_REPO = "barrecamatteo/tradingview-scanner"
 GITHUB_WORKFLOW = "scheduled_scan.yml"
 
@@ -58,7 +55,7 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     .dataframe td { text-align: center !important; }
-    .dataframe th { text-align: center !important; background-color: #1f2937 !important; }
+    .dataframe th { text-align: center !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -66,26 +63,22 @@ st.markdown("""
 # ── Helper Functions ──────────────────────────────────────────────────────
 
 def get_db() -> SupabaseDB:
-    """Get or create Supabase client from session state."""
     if "db" not in st.session_state:
         try:
             st.session_state.db = SupabaseDB()
         except ValueError as e:
             st.error(f"⚠️ Database non configurato: {e}")
-            st.info("Configura SUPABASE_URL e SUPABASE_KEY nei Secrets di Streamlit.")
             return None
     return st.session_state.db
 
 
 def format_rate(val):
-    """Format rate value with percentage sign."""
     if pd.isna(val) or val is None:
         return "—"
     return f"{float(val):.1f}%"
 
 
 def trigger_github_scan() -> bool:
-    """Trigger the GitHub Actions workflow via API."""
     token = os.getenv("GITHUB_TOKEN")
     if not token:
         st.error("⚠️ GITHUB_TOKEN non configurato nei Secrets.")
@@ -96,22 +89,16 @@ def trigger_github_scan() -> bool:
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.v3+json",
     }
-    data = {"ref": "main"}
 
     try:
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 204:
-            return True
-        else:
-            st.error(f"Errore GitHub API: {response.status_code} - {response.text}")
-            return False
+        response = requests.post(url, headers=headers, json={"ref": "main"})
+        return response.status_code == 204
     except Exception as e:
-        st.error(f"Errore connessione GitHub: {e}")
+        st.error(f"Errore: {e}")
         return False
 
 
 def get_workflow_status() -> dict:
-    """Get the latest GitHub Actions workflow run status."""
     token = os.getenv("GITHUB_TOKEN")
     if not token:
         return None
@@ -132,11 +119,153 @@ def get_workflow_status() -> dict:
                     "status": run["status"],
                     "conclusion": run.get("conclusion"),
                     "created_at": run["created_at"],
-                    "url": run["html_url"],
                 }
         return None
     except Exception:
         return None
+
+
+def get_scan_dates(db) -> list:
+    """Get all dates that have scan data."""
+    try:
+        result = db.client.table("scan_log") \
+            .select("started_at, successful, failed, status") \
+            .eq("status", "completed") \
+            .order("started_at", desc=True) \
+            .execute()
+
+        dates = []
+        for row in result.data:
+            dt = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+            dates.append({
+                "date": dt.date(),
+                "datetime": row["started_at"],
+                "successful": row.get("successful", 0),
+                "failed": row.get("failed", 0),
+            })
+        return dates
+    except Exception:
+        return []
+
+
+def get_history_for_date(db, target_date: date) -> list:
+    """Get all scan results for a specific date from history table."""
+    try:
+        start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
+        end = start + timedelta(days=1)
+
+        result = db.client.table("continuation_rates_history") \
+            .select("*") \
+            .gte("scanned_at", start.isoformat()) \
+            .lt("scanned_at", end.isoformat()) \
+            .order("scanned_at", desc=True) \
+            .execute()
+
+        return result.data
+    except Exception as e:
+        logger.warning(f"Errore caricamento storico: {e}")
+        return []
+
+
+def pivot_history_data(history_data: list) -> list:
+    """Convert flat history records into pivot format (one row per asset)."""
+    asset_data = {}
+
+    for row in history_data:
+        key = row["asset"]
+        if key not in asset_data:
+            asset_data[key] = {
+                "asset": row["asset"],
+                "category": row["category"],
+                "4H": None,
+                "1H": None,
+                "15min": None,
+                "scanned_at": row["scanned_at"],
+            }
+        if row["cont_rate"] is not None:
+            asset_data[key][row["timeframe"]] = float(row["cont_rate"])
+
+    # Calculate averages
+    for asset in asset_data.values():
+        values = [v for v in [asset["4H"], asset["1H"], asset["15min"]] if v is not None]
+        asset["avg"] = round(sum(values) / len(values), 1) if values else None
+
+    return sorted(asset_data.values(), key=lambda x: (x["category"], x["asset"]))
+
+
+# ── Sidebar ───────────────────────────────────────────────────────────────
+
+db = get_db()
+
+with st.sidebar:
+    # User info
+    st.markdown("### 👤 MBARRECA")
+
+    # API status
+    if db:
+        st.markdown("✅ Database OK")
+    else:
+        st.markdown("❌ Database non connesso")
+
+    workflow = get_workflow_status()
+    if workflow:
+        if workflow["status"] == "in_progress":
+            st.markdown("⏳ Scansione in corso...")
+        else:
+            st.markdown("✅ API GitHub OK")
+
+    st.markdown("---")
+
+    # ── Calendar / Date Picker ────────────────────────────────────────
+    st.markdown("### 📅 Storico Analisi")
+
+    # Get available scan dates
+    scan_dates = []
+    if db:
+        scan_dates = get_scan_dates(db)
+
+    available_dates = [s["date"] for s in scan_dates]
+
+    # Date picker
+    selected_date = st.date_input(
+        "Seleziona data",
+        value=date.today(),
+        max_value=date.today(),
+        format="DD/MM/YYYY",
+    )
+
+    # Show if selected date has data
+    if selected_date in available_dates:
+        scan_info = next(s for s in scan_dates if s["date"] == selected_date)
+        st.success(f"✅ Analisi disponibile ({scan_info['successful']} asset)")
+    elif selected_date == date.today():
+        st.info("📊 Mostra dati più recenti")
+    else:
+        st.warning("⚠️ Nessuna analisi per questa data")
+
+    # Show calendar legend with available dates
+    if scan_dates:
+        st.markdown("---")
+        st.markdown("**📋 Date disponibili:**")
+        for s in scan_dates[:10]:  # Show last 10
+            d = s["date"].strftime("%d/%m/%Y")
+            st.caption(f"🟢 {d} — {s['successful']} riuscite, {s['failed']} fallite")
+
+    st.markdown("---")
+
+    # Quick navigation
+    if st.button("📍 Vai a Oggi", use_container_width=True):
+        st.session_state.selected_date = date.today()
+        st.rerun()
+
+    st.markdown("---")
+
+    # Asset list
+    st.markdown("### 📋 Asset Monitorati")
+    for cat, assets_list in ASSETS.items():
+        with st.expander(f"{cat} ({len(assets_list)})"):
+            for a in assets_list:
+                st.text(f"  {a['name']}")
 
 
 # ── Main Content ──────────────────────────────────────────────────────────
@@ -147,7 +276,6 @@ st.markdown("Scansione automatica dei Continuation Rate SMC su 25 asset × 3 tim
 # Top metrics row
 col1, col2, col3, col4 = st.columns(4)
 
-db = get_db()
 last_scan = None
 if db:
     try:
@@ -170,49 +298,57 @@ with col4:
 
 st.markdown("---")
 
-# ── Scan Controls ─────────────────────────────────────────────────────────
+# ── Scan Button ───────────────────────────────────────────────────────────
 
-scan_col1, scan_col2, scan_col3 = st.columns([1, 1, 2])
+scan_col1, scan_col2 = st.columns([1, 3])
 
 with scan_col1:
     if st.button("🚀 Avvia Scansione", type="primary", use_container_width=True):
         if trigger_github_scan():
-            st.success("✅ Scansione avviata! Ci vorranno circa 45-60 minuti. I dati si aggiorneranno automaticamente su questa pagina.")
+            st.success(
+                "✅ Scansione avviata su GitHub Actions! "
+                "I risultati appariranno qui tra circa 45-60 minuti."
+            )
         else:
             st.error("❌ Impossibile avviare la scansione.")
 
 with scan_col2:
-    if st.button("🔄 Aggiorna Pagina", use_container_width=True):
-        st.rerun()
-
-with scan_col3:
-    # Show last scan status
     if last_scan:
-        status_icon = "✅" if last_scan["status"] == "completed" else "⏳" if last_scan["status"] == "running" else "⚠️"
+        status_icon = "✅" if last_scan["status"] == "completed" else "⏳"
         st.info(
             f"{status_icon} Ultima scansione: {last_scan.get('successful', 0)} riuscite, "
             f"{last_scan.get('failed', 0)} fallite"
         )
+    if workflow and workflow["status"] == "in_progress":
+        st.warning("⏳ Scansione GitHub in corso... Ricarica la pagina tra qualche minuto.")
 
-    # Show GitHub Actions status
-    workflow = get_workflow_status()
-    if workflow:
-        if workflow["status"] == "in_progress":
-            st.warning("⏳ Scansione GitHub in corso...")
-        elif workflow["status"] == "completed":
-            icon = "✅" if workflow["conclusion"] == "success" else "❌"
-            st.caption(f"{icon} Ultimo workflow: {workflow['created_at'][:16].replace('T', ' ')}")
-
-# ── Results Table ─────────────────────────────────────────────────────────
+# ── Load Data Based on Selected Date ──────────────────────────────────────
 
 st.markdown("## 📊 Continuation Rates")
 
+# Determine which data to show
 data = None
+showing_date = None
+
 if db:
-    try:
-        data = db.get_rates_pivot()
-    except Exception as e:
-        logger.warning(f"Errore caricamento dati: {e}")
+    if selected_date == date.today():
+        # Show latest data from current rates table
+        try:
+            data = db.get_rates_pivot()
+            showing_date = "più recenti"
+        except Exception as e:
+            logger.warning(f"Errore: {e}")
+    else:
+        # Show historical data for selected date
+        history = get_history_for_date(db, selected_date)
+        if history:
+            data = pivot_history_data(history)
+            showing_date = selected_date.strftime("%d/%m/%Y")
+        else:
+            st.warning(f"⚠️ Nessun dato trovato per il {selected_date.strftime('%d/%m/%Y')}")
+
+if showing_date:
+    st.caption(f"📅 Dati: **{showing_date}**")
 
 if data:
     df = pd.DataFrame(data)
@@ -256,25 +392,28 @@ if data:
     # ── Display Table ─────────────────────────────────────────────────
 
     display_df = df.copy()
-    display_df.rename(columns={
+
+    # Rename columns
+    col_rename = {
         "category": "Categoria",
         "asset": "Asset",
-        "4H": "4H",
-        "1H": "1H",
-        "15min": "15min",
         "avg": "Media",
-        "updated_at": "Ultimo Aggiornamento",
-    }, inplace=True)
+    }
+    if "updated_at" in display_df.columns:
+        col_rename["updated_at"] = "Ultimo Agg."
+    if "scanned_at" in display_df.columns:
+        col_rename["scanned_at"] = "Ultimo Agg."
+
+    display_df.rename(columns=col_rename, inplace=True)
 
     # Format percentage columns
-    rate_cols = ["4H", "1H", "15min", "Media"]
-    for col in rate_cols:
+    for col in ["4H", "1H", "15min", "Media"]:
         if col in display_df.columns:
             display_df[col] = display_df[col].apply(format_rate)
 
     # Format timestamp
-    if "Ultimo Aggiornamento" in display_df.columns:
-        display_df["Ultimo Aggiornamento"] = display_df["Ultimo Aggiornamento"].apply(
+    if "Ultimo Agg." in display_df.columns:
+        display_df["Ultimo Agg."] = display_df["Ultimo Agg."].apply(
             lambda x: str(x)[:16].replace("T", " ") if x else "—"
         )
 
@@ -289,7 +428,7 @@ if data:
             "1H": st.column_config.TextColumn(width="small"),
             "15min": st.column_config.TextColumn(width="small"),
             "Media": st.column_config.TextColumn(width="small"),
-            "Ultimo Aggiornamento": st.column_config.TextColumn(width="medium"),
+            "Ultimo Agg.": st.column_config.TextColumn(width="medium"),
         },
     )
 
@@ -337,10 +476,11 @@ if data:
     )
 
 else:
-    st.info(
-        "📭 Nessun dato disponibile. Clicca **🚀 Avvia Scansione** per lanciare "
-        "la prima raccolta dati."
-    )
+    if not showing_date or showing_date == "più recenti":
+        st.info(
+            "📭 Nessun dato disponibile. Clicca **🚀 Avvia Scansione** per lanciare "
+            "la prima raccolta dati."
+        )
 
 # ── History Chart ─────────────────────────────────────────────────────────
 
@@ -375,24 +515,6 @@ if db:
             st.info("Nessun dato storico disponibile per questo asset/timeframe.")
     except Exception:
         pass
-
-# ── Sidebar (info) ────────────────────────────────────────────────────────
-
-with st.sidebar:
-    st.markdown("## ℹ️ Info")
-
-    st.markdown("### 📋 Asset Monitorati")
-    for cat, assets_list in ASSETS.items():
-        with st.expander(f"{cat} ({len(assets_list)})"):
-            for a in assets_list:
-                st.text(f"  {a['name']}")
-
-    st.markdown("---")
-    st.markdown(
-        "**Come funziona:** Clicca 🚀 Avvia Scansione per lanciare "
-        "la raccolta dati su GitHub Actions. I risultati appariranno "
-        "qui dopo circa 45-60 minuti."
-    )
 
 # ── Footer ────────────────────────────────────────────────────────────────
 st.markdown("---")
