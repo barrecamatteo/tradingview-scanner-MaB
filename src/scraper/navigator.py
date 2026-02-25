@@ -43,6 +43,9 @@ class ChartNavigator:
             # Close right sidebar panels (Watchlist, etc.)
             self._close_right_panels()
 
+            # Hide all manual drawings on chart
+            self._hide_drawings()
+
             # Dismiss popups
             self.dismiss_popups()
 
@@ -117,6 +120,75 @@ class ChartNavigator:
 
         except Exception as e:
             logger.warning(f"Could not scroll chart right: {e}")
+
+    def _hide_drawings(self):
+        """
+        Click the 'eye' button on the left toolbar to hide all manual drawings.
+        This prevents drawn objects from overlapping the Analysis panel.
+        The button toggles visibility of all drawing objects on the chart.
+        """
+        try:
+            # Try multiple selectors for the hide/show drawings button
+            drawing_visibility_selectors = [
+                # Eye icon button in left toolbar
+                "[data-name='drawingToolbarToggleVisibility']",
+                "[data-name='toggleVisibilityOfSelectedDrawings']",
+                "[data-name='hideAllDrawingTools']",
+                # Generic eye icon in drawing toolbar
+                ".drawingToolbar button[data-name*='isibility']",
+                ".drawingToolbar button[data-name*='eye']",
+                # Left toolbar buttons with visibility/eye related attributes
+                "[id*='drawing'] [data-name*='isibility']",
+            ]
+
+            for selector in drawing_visibility_selectors:
+                try:
+                    buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for btn in buttons:
+                        try:
+                            btn.click()
+                            time.sleep(0.5)
+                            logger.info(f"Toggled drawing visibility via: {selector}")
+                            return
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+
+            # Fallback: try finding the eye icon by its SVG path or aria-label
+            try:
+                eye_buttons = self.driver.find_elements(
+                    By.XPATH,
+                    "//button[contains(@aria-label, 'isib') or contains(@aria-label, 'Hide') "
+                    "or contains(@aria-label, 'Nascondi') or contains(@aria-label, 'drawing')]"
+                )
+                for btn in eye_buttons:
+                    try:
+                        # Only click buttons in the left toolbar area
+                        location = btn.location
+                        if location["x"] < 100:  # Left toolbar is on the far left
+                            btn.click()
+                            time.sleep(0.5)
+                            logger.info("Toggled drawing visibility via aria-label")
+                            return
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+            # Last resort: use keyboard shortcut Ctrl+Shift+H (TradingView shortcut)
+            try:
+                body = self.driver.find_element(By.TAG_NAME, "body")
+                from selenium.webdriver.common.action_chains import ActionChains
+                actions = ActionChains(self.driver)
+                actions.key_down(Keys.CONTROL).key_down(Keys.SHIFT).send_keys("h").key_up(Keys.SHIFT).key_up(Keys.CONTROL).perform()
+                time.sleep(0.5)
+                logger.info("Toggled drawing visibility via Ctrl+Shift+H shortcut")
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.warning(f"Could not hide drawings: {e}")
 
     def _close_right_panels(self):
         """
