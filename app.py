@@ -559,10 +559,13 @@ if data:
     top_rates = get_top_rates(df, threshold=67.5)
 
     if not top_rates.empty:
+        # Calculate height to fit all rows (35px per row + 38px header)
+        table_height = 38 + len(top_rates) * 35 + 2
         st.dataframe(
             top_rates,
             use_container_width=True,
             hide_index=True,
+            height=table_height,
             column_config={
                 "Asset": st.column_config.TextColumn(width="small"),
                 "Categoria": st.column_config.TextColumn(width="medium"),
