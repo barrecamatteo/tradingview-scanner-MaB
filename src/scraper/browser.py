@@ -30,7 +30,7 @@ class TradingViewBrowser:
         self._setup_driver()
 
     def _setup_driver(self):
-        """Initialize Chrome WebDriver with stable settings for Windows."""
+        """Initialize Chrome WebDriver with stable settings."""
         options = Options()
 
         if self.headless:
@@ -45,7 +45,7 @@ class TradingViewBrowser:
         options.add_argument("--disable-notifications")
         options.add_argument("--disable-popup-blocking")
 
-        # Extra stability for Windows
+        # Extra stability
         options.add_argument("--disable-software-rasterizer")
         options.add_argument("--disable-features=VizDisplayCompositor")
         options.add_argument("--remote-debugging-port=9222")
@@ -57,14 +57,10 @@ class TradingViewBrowser:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
 
-        # DO NOT use --user-data-dir (causes crashes on Windows)
-        # We use cookies instead for session persistence
-
         try:
             service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=options)
         except Exception:
-            # Fallback: try system chromedriver
             self.driver = webdriver.Chrome(options=options)
 
         self.driver.execute_cdp_cmd(
@@ -77,23 +73,61 @@ class TradingViewBrowser:
     def login(self, username: str = None, password: str = None) -> bool:
         """
         Login to TradingView.
-        First tries cookie restoration, then credential-based login.
+        Priority: 1) Cookie restoration  2) Credential login
         """
         username = username or os.getenv("TV_USERNAME")
         password = password or os.getenv("TV_PASSWORD")
 
-        # Try cookie restoration first
+        # Try cookie restoration first (most reliable for GitHub Actions)
         if self._restore_cookies():
-            if self._is_logged_in():
-                logger.info("Logged in via restored cookies")
+            logger.info("Cookies restored - checking session...")
+            # Try navigating to a chart page to verify cookies work
+            if self._verify_session_with_chart():
+                logger.info("Already logged in via persistent session")
                 return True
+            else:
+                logger.warning("Cookie session expired or invalid, trying credentials...")
 
-        # Credential-based login
+        # Credential-based login as fallback
         if not username or not password:
-            logger.error("No credentials provided and no active session")
+            logger.error("No credentials provided and cookie session failed")
             return False
 
         return self._login_with_credentials(username, password)
+
+    def _verify_session_with_chart(self) -> bool:
+        """
+        Verify login by loading a chart page and checking for chart elements.
+        More reliable than checking the homepage user menu on headless servers.
+        """
+        try:
+            self.driver.get("https://www.tradingview.com/chart/")
+            time.sleep(5)
+
+            # If we get redirected to signin, cookies didn't work
+            current_url = self.driver.current_url
+            if "signin" in current_url or "sign-in" in current_url:
+                logger.warning("Redirected to signin - cookies expired")
+                return False
+
+            # Check for chart elements (present only when logged in or on public charts)
+            try:
+                self.driver.find_element(By.CSS_SELECTOR, "canvas, .chart-container, .chart-markup-table")
+                logger.info("Chart loaded successfully - session valid")
+                return True
+            except NoSuchElementException:
+                pass
+
+            # Check page source for indicators of logged-in state
+            page_source = self.driver.page_source
+            if "chart" in page_source.lower() and "signin" not in current_url:
+                logger.info("Session appears valid (chart page loaded)")
+                return True
+
+            return False
+        except Exception as e:
+            logger.warning(f"Session verification error: {e}")
+            return False
 
     def _is_logged_in(self) -> bool:
         """Check if currently logged in to TradingView."""
@@ -101,7 +135,6 @@ class TradingViewBrowser:
             self.driver.get("https://www.tradingview.com/")
             time.sleep(3)
 
-            # Check for user menu (indicates logged in)
             try:
                 self.driver.find_element(By.CSS_SELECTOR, "[data-name='header-user-menu-button']")
                 return True
@@ -124,10 +157,10 @@ class TradingViewBrowser:
         try:
             logger.info("Attempting credential-based login...")
             self.driver.get("https://www.tradingview.com/#signin")
-            time.sleep(3)
+            time.sleep(5)
 
             # Click "Email" sign-in option
-            wait = WebDriverWait(self.driver, 10)
+            wait = WebDriverWait(self.driver, 15)
 
             email_buttons = self.driver.find_elements(
                 By.XPATH,
@@ -136,7 +169,7 @@ class TradingViewBrowser:
             for btn in email_buttons:
                 try:
                     btn.click()
-                    time.sleep(1)
+                    time.sleep(2)
                     break
                 except Exception:
                     continue
@@ -153,11 +186,36 @@ class TradingViewBrowser:
             password_field.clear()
             password_field.send_keys(password)
 
-            # Click sign in
-            sign_in_btn = self.driver.find_element(
-                By.CSS_SELECTOR, "button[type='submit']"
-            )
-            sign_in_btn.click()
+            # Click sign in - try multiple selectors
+            sign_in_selectors = [
+                "button[type='submit']",
+                "[class*='submitButton']",
+                "button[data-overflow-tooltip-text='Sign in']",
+            ]
+            clicked = False
+            for selector in sign_in_selectors:
+                try:
+                    btn = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    btn.click()
+                    clicked = True
+                    break
+                except Exception:
+                    continue
+
+            if not clicked:
+                # Try XPath as last resort
+                try:
+                    btn = self.driver.find_element(
+                        By.XPATH, "//button[contains(text(), 'Sign in') or contains(text(), 'Accedi')]"
+                    )
+                    btn.click()
+                    clicked = True
+                except Exception:
+                    pass
+
+            if not clicked:
+                logger.error("Could not find sign-in button")
+                return False
 
             time.sleep(5)
 
@@ -166,7 +224,7 @@ class TradingViewBrowser:
                 logger.info("2FA handled")
 
             # Verify login
-            if self._is_logged_in():
+            if self._verify_session_with_chart():
                 self._save_cookies()
                 logger.info("Login successful")
                 return True
@@ -214,26 +272,42 @@ class TradingViewBrowser:
         """Restore cookies from file."""
         try:
             if not COOKIES_PATH.exists():
+                logger.warning(f"Cookie file not found: {COOKIES_PATH}")
                 return False
 
+            logger.info(f"Loading cookies from {COOKIES_PATH}")
+
+            # First navigate to the domain so we can set cookies
             self.driver.get("https://www.tradingview.com/")
-            time.sleep(2)
+            time.sleep(3)
 
             with open(COOKIES_PATH, "r") as f:
                 cookies = json.load(f)
 
+            logger.info(f"Found {len(cookies)} cookies to restore")
+
+            restored = 0
             for cookie in cookies:
                 try:
+                    # Clean up cookie for Selenium
                     cookie.pop("sameSite", None)
                     cookie.pop("expiry", None)
                     self.driver.add_cookie(cookie)
-                except Exception:
+                    restored += 1
+                except Exception as e:
+                    logger.debug(f"Skipped cookie {cookie.get('name', '?')}: {e}")
                     continue
 
+            logger.info(f"Restored {restored}/{len(cookies)} cookies")
+
+            if restored == 0:
+                return False
+
+            # Refresh to apply cookies
             self.driver.refresh()
             time.sleep(3)
-            logger.info("Cookies restored")
             return True
+
         except Exception as e:
             logger.warning(f"Failed to restore cookies: {e}")
             return False
