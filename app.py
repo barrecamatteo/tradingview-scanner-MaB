@@ -265,32 +265,121 @@ with st.sidebar:
 
     available_dates = [s["date"] for s in scan_dates]
 
-    selected_date = st.date_input(
-        "Seleziona data",
-        value=date.today(),
-        max_value=date.today(),
-        format="DD/MM/YYYY",
+    # ── Month navigation ──────────────────────────────────────────────
+    import calendar
+
+    if "cal_year" not in st.session_state:
+        st.session_state.cal_year = date.today().year
+    if "cal_month" not in st.session_state:
+        st.session_state.cal_month = date.today().month
+
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 3, 1])
+    with nav_col1:
+        if st.button("◀", key="prev_month", use_container_width=True):
+            if st.session_state.cal_month == 1:
+                st.session_state.cal_month = 12
+                st.session_state.cal_year -= 1
+            else:
+                st.session_state.cal_month -= 1
+            st.rerun()
+    with nav_col2:
+        month_names_it = ["", "Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
+                          "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
+        st.markdown(
+            f"<div style='text-align:center; font-weight:bold; font-size:1.1em;'>"
+            f"{month_names_it[st.session_state.cal_month]} {st.session_state.cal_year}</div>",
+            unsafe_allow_html=True,
+        )
+    with nav_col3:
+        if st.button("▶", key="next_month", use_container_width=True):
+            if st.session_state.cal_month == 12:
+                st.session_state.cal_month = 1
+                st.session_state.cal_year += 1
+            else:
+                st.session_state.cal_month += 1
+            st.rerun()
+
+    # ── Build calendar HTML ───────────────────────────────────────────
+    cal = calendar.Calendar(firstweekday=0)  # Monday first
+    month_days = cal.monthdayscalendar(st.session_state.cal_year, st.session_state.cal_month)
+    today = date.today()
+
+    cal_html = """
+    <style>
+    .cal-table { width: 100%; border-collapse: collapse; margin: 5px 0; }
+    .cal-table th { color: #888; font-size: 0.75em; font-weight: 600; padding: 4px 0; text-align: center; }
+    .cal-table td { text-align: center; padding: 3px 0; font-size: 0.85em; }
+    .cal-day { width: 28px; height: 28px; line-height: 28px; margin: auto; border-radius: 50%; }
+    .cal-today { background-color: #4A9EE5; color: white; font-weight: bold; }
+    .cal-saved { background-color: #48C78E; color: white; font-weight: bold; }
+    .cal-empty { color: #ccc; }
+    .cal-normal { color: #333; }
+    .cal-legend { display: flex; align-items: center; justify-content: center; gap: 15px; margin: 8px 0; font-size: 0.75em; color: #888; }
+    .cal-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .cal-dot-green { background-color: #48C78E; }
+    .cal-dot-blue { background-color: #4A9EE5; }
+    </style>
+    <table class="cal-table">
+    <tr><th>Lu</th><th>Ma</th><th>Me</th><th>Gi</th><th>Ve</th><th>Sa</th><th>Do</th></tr>
+    """
+
+    for week in month_days:
+        cal_html += "<tr>"
+        for day in week:
+            if day == 0:
+                cal_html += '<td><div class="cal-day cal-empty"></div></td>'
+            else:
+                d = date(st.session_state.cal_year, st.session_state.cal_month, day)
+                if d == today and d in available_dates:
+                    cls = "cal-saved"
+                elif d == today:
+                    cls = "cal-today"
+                elif d in available_dates:
+                    cls = "cal-saved"
+                else:
+                    cls = "cal-normal"
+                cal_html += f'<td><div class="cal-day {cls}">{day}</div></td>'
+        cal_html += "</tr>"
+
+    cal_html += "</table>"
+    cal_html += """
+    <div class="cal-legend">
+        <span><span class="cal-dot cal-dot-green"></span>Analisi salvata</span>
+        <span><span class="cal-dot cal-dot-blue"></span>Oggi</span>
+    </div>
+    """
+
+    st.markdown(cal_html, unsafe_allow_html=True)
+
+    # ── Dropdown: Carica analisi ──────────────────────────────────────
+    st.markdown("")
+    st.markdown("📋 **Carica analisi:**")
+
+    date_options = ["-- Seleziona data --"]
+    date_map = {}
+    for s in scan_dates:
+        label = s["date"].strftime("%d/%m/%Y") + f" ({s['successful']} asset)"
+        date_options.append(label)
+        date_map[label] = s["date"]
+
+    selected_option = st.selectbox(
+        "Carica analisi",
+        date_options,
+        key="date_selector",
+        label_visibility="collapsed",
     )
 
-    if selected_date in available_dates:
-        scan_info = next(s for s in scan_dates if s["date"] == selected_date)
-        st.success(f"✅ Analisi disponibile ({scan_info['successful']} asset)")
-    elif selected_date == date.today():
-        st.info("📊 Mostra dati più recenti")
+    if selected_option != "-- Seleziona data --":
+        selected_date = date_map[selected_option]
     else:
-        st.warning("⚠️ Nessuna analisi per questa data")
+        selected_date = date.today()
 
-    if scan_dates:
-        st.markdown("---")
-        st.markdown("**📋 Date disponibili:**")
-        for s in scan_dates[:10]:
-            d = s["date"].strftime("%d/%m/%Y")
-            st.caption(f"🟢 {d} — {s['successful']} riuscite, {s['failed']} fallite")
-
-    st.markdown("---")
-
+    # ── Vai a Oggi button ─────────────────────────────────────────────
+    st.markdown("")
     if st.button("📍 Vai a Oggi", use_container_width=True):
-        st.session_state.selected_date = date.today()
+        st.session_state.date_selector = "-- Seleziona data --"
+        st.session_state.cal_year = date.today().year
+        st.session_state.cal_month = date.today().month
         st.rerun()
 
     st.markdown("---")
