@@ -620,37 +620,51 @@ if db:
             hist_df = pd.DataFrame(history)
             hist_df["scanned_at"] = pd.to_datetime(hist_df["scanned_at"])
             hist_df["cont_rate"] = hist_df["cont_rate"].astype(float)
-            hist_df = hist_df.sort_values("scanned_at")
-            hist_df["data"] = hist_df["scanned_at"].dt.strftime("%d/%m/%Y %H:%M")
 
-            # Y-axis range: from 45% to 85% (or adapt to data)
-            y_min = max(0, hist_df["cont_rate"].min() - 5)
-            y_max = min(100, hist_df["cont_rate"].max() + 5)
-            # Keep within reasonable range
-            y_min = max(y_min, 40)
-            y_max = max(y_max, y_min + 10)
+            # Filter out OCR errors (values below 40% are almost certainly wrong)
+            hist_df = hist_df[hist_df["cont_rate"] >= 40.0]
 
-            # Build chart
-            base = alt.Chart(hist_df).encode(
-                x=alt.X("scanned_at:T",
-                         title="Data",
-                         axis=alt.Axis(format="%d/%m/%Y", labelAngle=-45)),
-                y=alt.Y("cont_rate:Q",
-                         title="Cont. Rate (%)",
-                         scale=alt.Scale(domain=[y_min, y_max])),
-                tooltip=[
-                    alt.Tooltip("data:N", title="Data"),
-                    alt.Tooltip("cont_rate:Q", title="Cont. Rate", format=".1f"),
-                ],
-            )
+            if not hist_df.empty:
+                hist_df = hist_df.sort_values("scanned_at")
 
-            # Line + points (points help when there's only 1-2 data points)
-            chart = (
-                base.mark_line(color="#4A9EE5", strokeWidth=2)
-                + base.mark_circle(color="#4A9EE5", size=60)
-            )
+                # Keep only one entry per day (the latest scan of each day)
+                hist_df["scan_date"] = hist_df["scanned_at"].dt.date
+                hist_df = hist_df.drop_duplicates(subset=["scan_date"], keep="last")
 
-            st.altair_chart(chart, use_container_width=True)
+                # Format date for tooltip
+                hist_df["data"] = hist_df["scanned_at"].dt.strftime("%d/%m/%Y")
+
+                # Y-axis: tight range around actual values
+                y_min = max(40, hist_df["cont_rate"].min() - 3)
+                y_max = min(100, hist_df["cont_rate"].max() + 3)
+                y_max = max(y_max, y_min + 5)
+
+                # Build chart
+                base = alt.Chart(hist_df).encode(
+                    x=alt.X("scan_date:T",
+                             title="Data",
+                             axis=alt.Axis(
+                                 format="%d/%m",
+                                 labelAngle=-45,
+                                 tickCount="week",
+                             )),
+                    y=alt.Y("cont_rate:Q",
+                             title="Cont. Rate (%)",
+                             scale=alt.Scale(domain=[y_min, y_max])),
+                    tooltip=[
+                        alt.Tooltip("data:N", title="Data"),
+                        alt.Tooltip("cont_rate:Q", title="Cont. Rate", format=".1f"),
+                    ],
+                )
+
+                chart = (
+                    base.mark_line(color="#4A9EE5", strokeWidth=2, interpolate="monotone")
+                    + base.mark_circle(color="#4A9EE5", size=80, filled=True)
+                )
+
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("I dati disponibili sembrano contenere errori OCR. Nessun valore valido (≥40%) trovato.")
 
         else:
             st.info("Nessun dato storico disponibile per questo asset/timeframe.")
