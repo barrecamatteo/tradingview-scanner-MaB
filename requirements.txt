@@ -1,24 +1,13 @@
-# Core
+# Browser automation
 selenium>=4.15.0
 webdriver-manager>=4.0.1
-Pillow>=10.0.0
-
-# OCR (choose one or both)
-easyocr>=1.7.0
-# pytesseract>=0.3.10  # Alternative OCR, requires system tesseract
-
-# Web App
-streamlit>=1.28.0
 
 # Database
 supabase>=2.0.0
 
-# Data
+# Web dashboard
+streamlit>=1.28.0
 pandas>=2.0.0
-numpy>=1.24.0
 
-# AI Vision (optional - for Claude API extraction)
-anthropic>=0.18.0
-
-# Utilities
+# Config
 python-dotenv>=1.0.0
