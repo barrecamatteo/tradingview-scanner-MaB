@@ -10,9 +10,12 @@ from typing import List, Dict, Callable, Optional
 
 from .scraper.browser import TradingViewBrowser
 from .scraper.navigator import ChartNavigator
-from .scraper.extractor import ContRateExtractor
-from .database.supabase_client import SupabaseDB
 from .config.assets import get_all_assets, get_timeframes, SCRAPER_CONFIG
+
+try:
+    from .database.supabase_client import SupabaseDB
+except ImportError:
+    SupabaseDB = None
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +129,10 @@ class TradingViewScanner:
 
             # Only init OCR extractor if needed
             if self.extraction_method in ("ocr", "ai_vision"):
+                from .scraper.extractor import ContRateExtractor
                 self.extractor = ContRateExtractor(method=self.extraction_method)
 
-            if self.use_database:
+            if self.use_database and SupabaseDB is not None:
                 self.db = SupabaseDB()
                 scan_id = self.db.start_scan(total)
 
@@ -145,10 +149,10 @@ class TradingViewScanner:
             if not self.navigator.initial_load():
                 raise RuntimeError("Failed to load chart page")
 
-            # Iterate through all combinations
+            # Iterate: timeframe first, then assets (minimizes timeframe switches)
             current = 0
-            for category, symbol, asset_name in assets:
-                for tf_label, tf_interval in timeframes.items():
+            for tf_label, tf_interval in timeframes.items():
+                for category, symbol, asset_name in assets:
                     current += 1
                     self._report_progress(
                         current, total,
@@ -197,13 +201,21 @@ class TradingViewScanner:
         tf_label: str,
         tf_interval: str,
     ) -> ScanResult:
-        """Scan a single asset/timeframe combination with retries."""
+        """Scan a single asset/timeframe combination with retries.
+        
+        Uses progressive wait times: 4s -> 8s -> 10s for indicator loading.
+        """
         retry_count = SCRAPER_CONFIG["retry_count"]
+        wait_times = [4, 8, 10]  # Progressive indicator wait per attempt
 
         for attempt in range(retry_count):
             try:
+                indicator_wait = wait_times[min(attempt, len(wait_times) - 1)]
+
                 # Navigate to chart
-                if not self.navigator.navigate_to_chart(symbol, tf_interval):
+                if not self.navigator.navigate_to_chart(
+                    symbol, tf_interval, indicator_wait=indicator_wait
+                ):
                     if attempt < retry_count - 1:
                         logger.warning(
                             f"Navigation failed for {asset_name}@{tf_label}, "
