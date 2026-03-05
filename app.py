@@ -117,8 +117,8 @@ with st.sidebar:
 
     extraction_method = st.selectbox(
         "Extraction Method",
-        ["dom", "ocr", "ai_vision"],
-        help="DOM reads from Data Window (fastest, 100% accurate). "
+        ["csv", "ocr", "ai_vision"],
+        help="CSV downloads chart data (fastest, 100% accurate). "
              "OCR uses EasyOCR. AI Vision uses Claude API.",
     )
 
