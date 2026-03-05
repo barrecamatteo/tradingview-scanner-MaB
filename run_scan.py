@@ -46,9 +46,9 @@ def parse_args():
     )
     parser.add_argument(
         "--method",
-        choices=["dom", "ocr", "ai_vision"],
-        default=os.getenv("EXTRACTION_METHOD", "dom"),
-        help="Extraction method (default: dom)",
+        choices=["csv", "ocr", "ai_vision"],
+        default=os.getenv("EXTRACTION_METHOD", "csv"),
+        help="Extraction method (default: csv)",
     )
     return parser.parse_args()
 
