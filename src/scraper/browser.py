@@ -78,7 +78,7 @@ class TradingViewBrowser:
             "Page.addScriptToEvaluateOnNewDocument",
             {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
         )
-        self.driver.set_page_load_timeout(30)
+        self.driver.set_page_load_timeout(90)
         logger.info("Chrome WebDriver initialized")
 
     def login(self, username: str = None, password: str = None) -> bool:
