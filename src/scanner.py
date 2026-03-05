@@ -214,7 +214,9 @@ class TradingViewScanner:
                 if self.extraction_method == "dom":
                     # DOM extraction: fast & accurate with built-in polling
                     self.navigator.open_data_window()
-                    cont_rate, confidence = self.navigator.get_cont_rate_from_dom()
+                    cont_rate, confidence = self.navigator.get_cont_rate_from_dom(
+                        asset_name=asset_name, timeframe=tf_label
+                    )
                 else:
                     # OCR/AI Vision fallback
                     screenshot = self.navigator.get_analysis_panel_screenshot()
