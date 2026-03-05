@@ -140,6 +140,11 @@ class TradingViewScanner:
             # Dismiss any popups
             self.navigator.dismiss_popups()
 
+            # Load chart page once to establish layout with indicators
+            self._report_progress(0, total, "Loading chart layout...")
+            if not self.navigator.initial_load():
+                raise RuntimeError("Failed to load chart page")
+
             # Iterate through all combinations
             current = 0
             for category, symbol, asset_name in assets:
