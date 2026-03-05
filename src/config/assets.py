@@ -99,5 +99,5 @@ SCRAPER_CONFIG = {
 }
 
 # TradingView chart URL template
-TV_CHART_URL = "https://www.tradingview.com/chart/KKDLn4WZ/?symbol={symbol}&interval={interval}"
+TV_CHART_URL = "https://www.tradingview.com/chart/?symbol={symbol}&interval={interval}"
 TV_LOGIN_URL = "https://www.tradingview.com/accounts/signin/"
