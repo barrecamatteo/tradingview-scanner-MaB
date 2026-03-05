@@ -55,17 +55,25 @@ class ChartNavigator:
         try:
             url = TV_CHART_URL.format(symbol=symbol, interval=interval)
 
-            self.driver.get(url)
+            # Page load can be slow with many indicators - handle timeout gracefully
+            try:
+                self.driver.get(url)
+            except TimeoutException:
+                logger.warning(f"Page load timeout for {symbol}@{interval}, continuing anyway...")
+
             self._current_symbol = symbol
             self._current_interval = interval
 
-            # Wait for chart to load
-            timeout = SCRAPER_CONFIG["page_load_timeout"]
-            WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, "[class*='chart-container'], [class*='chart-markup-table']")
+            # Wait for chart to load (increase wait time for heavy charts)
+            timeout = 60  # 60 seconds for chart with many indicators
+            try:
+                WebDriverWait(self.driver, timeout).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, "[class*='chart'], canvas, [class*='layout']")
+                    )
                 )
-            )
+            except TimeoutException:
+                logger.warning(f"Chart element not found for {symbol}@{interval}, continuing...")
 
             # Wait for indicators to calculate
             time.sleep(SCRAPER_CONFIG["indicator_wait_timeout"])
