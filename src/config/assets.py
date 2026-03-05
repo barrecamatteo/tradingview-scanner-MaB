@@ -18,34 +18,34 @@ DAILY_TIMEFRAMES = ["5min", "1min"]
 # Assets organized by category
 ASSETS = {
     "Yen Crosses": [
-        {"symbol": "FX:USDJPY", "name": "USDJPY"},
-        {"symbol": "FX:GBPJPY", "name": "GBPJPY"},
-        {"symbol": "FX:AUDJPY", "name": "AUDJPY"},
-        {"symbol": "FX:EURJPY", "name": "EURJPY"},
-        {"symbol": "FX:CADJPY", "name": "CADJPY"},
+        {"symbol": "OANDA:USDJPY", "name": "USDJPY"},
+        {"symbol": "OANDA:GBPJPY", "name": "GBPJPY"},
+        {"symbol": "OANDA:AUDJPY", "name": "AUDJPY"},
+        {"symbol": "OANDA:EURJPY", "name": "EURJPY"},
+        {"symbol": "OANDA:CADJPY", "name": "CADJPY"},
     ],
     "Commodity Currencies": [
-        {"symbol": "FX:AUDUSD", "name": "AUDUSD"},
-        {"symbol": "FX:AUDCAD", "name": "AUDCAD"},
-        {"symbol": "FX:AUDCHF", "name": "AUDCHF"},
-        {"symbol": "FX:GBPAUD", "name": "GBPAUD"},
-        {"symbol": "FX:EURAUD", "name": "EURAUD"},
-        {"symbol": "FX:EURCAD", "name": "EURCAD"},
-        {"symbol": "FX:GBPCAD", "name": "GBPCAD"},
+        {"symbol": "OANDA:AUDUSD", "name": "AUDUSD"},
+        {"symbol": "OANDA:AUDCAD", "name": "AUDCAD"},
+        {"symbol": "OANDA:AUDCHF", "name": "AUDCHF"},
+        {"symbol": "OANDA:GBPAUD", "name": "GBPAUD"},
+        {"symbol": "OANDA:EURAUD", "name": "EURAUD"},
+        {"symbol": "OANDA:EURCAD", "name": "EURCAD"},
+        {"symbol": "OANDA:GBPCAD", "name": "GBPCAD"},
     ],
     "Safe Haven": [
-        {"symbol": "FX:USDCHF", "name": "USDCHF"},
-        {"symbol": "FX:EURCHF", "name": "EURCHF"},
-        {"symbol": "FX:GBPCHF", "name": "GBPCHF"},
-        {"symbol": "FX:CADCHF", "name": "CADCHF"},
+        {"symbol": "OANDA:USDCHF", "name": "USDCHF"},
+        {"symbol": "OANDA:EURCHF", "name": "EURCHF"},
+        {"symbol": "OANDA:GBPCHF", "name": "GBPCHF"},
+        {"symbol": "OANDA:CADCHF", "name": "CADCHF"},
     ],
     "Europe Economy": [
-        {"symbol": "FX:EURUSD", "name": "EURUSD"},
-        {"symbol": "FX:EURGBP", "name": "EURGBP"},
-        {"symbol": "FX:GBPUSD", "name": "GBPUSD"},
+        {"symbol": "OANDA:EURUSD", "name": "EURUSD"},
+        {"symbol": "OANDA:EURGBP", "name": "EURGBP"},
+        {"symbol": "OANDA:GBPUSD", "name": "GBPUSD"},
     ],
     "Crypto": [
-        {"symbol": "BINANCE:ETHUSDT", "name": "ETHUSD"},
+        {"symbol": "BITSTAMP:ETHUSD", "name": "ETHUSD"},
     ],
     "Commodities": [
         {"symbol": "OANDA:XAUUSD", "name": "XAUUSD"},
@@ -53,8 +53,8 @@ ASSETS = {
         {"symbol": "OANDA:XPTUSD", "name": "XPTUSD"},
     ],
     "Indices": [
-        {"symbol": "FOREXCOM:SPX500", "name": "SPX500"},
-        {"symbol": "FOREXCOM:NAS100", "name": "NAS100"},
+        {"symbol": "FXCM:SPX500", "name": "SPX500"},
+        {"symbol": "FXCM:NAS100", "name": "NAS100"},
     ],
 }
 
