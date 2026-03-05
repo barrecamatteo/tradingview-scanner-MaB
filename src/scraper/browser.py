@@ -24,19 +24,19 @@ COOKIES_PATH = Path(__file__).parent.parent.parent / "data" / "tv_cookies.json"
 class TradingViewBrowser:
     """Manages Selenium browser instance with TradingView authentication."""
 
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, download_dir: str = None):
         self.headless = headless
         self.driver = None
+        self._download_dir = download_dir
         self._setup_driver()
 
     def _setup_driver(self):
-        """Initialize Chrome WebDriver with stable settings."""
+        """Initialize Chrome WebDriver with optimized settings."""
         options = Options()
 
         if self.headless:
             options.add_argument("--headless=new")
 
-        # Core stability flags
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
@@ -45,22 +45,33 @@ class TradingViewBrowser:
         options.add_argument("--disable-notifications")
         options.add_argument("--disable-popup-blocking")
 
-        # Extra stability
-        options.add_argument("--disable-software-rasterizer")
-        options.add_argument("--disable-features=VizDisplayCompositor")
-        options.add_argument("--remote-debugging-port=9222")
-        options.add_argument("--disable-background-timer-throttling")
-        options.add_argument("--disable-renderer-backgrounding")
-
         # Prevent detection
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
 
+        # Set download directory for CSV extraction
+        if self._download_dir:
+            os.makedirs(self._download_dir, exist_ok=True)
+            prefs = {
+                "download.default_directory": self._download_dir,
+                "download.prompt_for_download": False,
+                "download.directory_upgrade": True,
+                "safebrowsing.enabled": True,
+            }
+            options.add_experimental_option("prefs", prefs)
+            logger.info(f"Chrome download directory set to: {self._download_dir}")
+
+        # Persistent user data dir to maintain sessions
+        user_data_dir = Path(__file__).parent.parent.parent / "data" / "chrome_profile"
+        user_data_dir.mkdir(parents=True, exist_ok=True)
+        options.add_argument(f"--user-data-dir={user_data_dir}")
+
         try:
             service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=options)
         except Exception:
+            # Fallback: try system chromedriver
             self.driver = webdriver.Chrome(options=options)
 
         self.driver.execute_cdp_cmd(
@@ -73,61 +84,29 @@ class TradingViewBrowser:
     def login(self, username: str = None, password: str = None) -> bool:
         """
         Login to TradingView.
-        Priority: 1) Cookie restoration  2) Credential login
+        First attempts session restoration from cookies/profile.
+        Falls back to credential-based login.
         """
         username = username or os.getenv("TV_USERNAME")
         password = password or os.getenv("TV_PASSWORD")
 
-        # Try cookie restoration first (most reliable for GitHub Actions)
-        if self._restore_cookies():
-            logger.info("Cookies restored - checking session...")
-            # Try navigating to a chart page to verify cookies work
-            if self._verify_session_with_chart():
-                logger.info("Already logged in via persistent session")
-                return True
-            else:
-                logger.warning("Cookie session expired or invalid, trying credentials...")
+        # Check if already logged in (persistent profile)
+        if self._is_logged_in():
+            logger.info("Already logged in via persistent session")
+            return True
 
-        # Credential-based login as fallback
+        # Try cookie restoration
+        if self._restore_cookies():
+            if self._is_logged_in():
+                logger.info("Logged in via restored cookies")
+                return True
+
+        # Credential-based login
         if not username or not password:
-            logger.error("No credentials provided and cookie session failed")
+            logger.error("No credentials provided and no active session")
             return False
 
         return self._login_with_credentials(username, password)
-
-    def _verify_session_with_chart(self) -> bool:
-        """
-        Verify login by loading a chart page and checking for chart elements.
-        More reliable than checking the homepage user menu on headless servers.
-        """
-        try:
-            self.driver.get("https://www.tradingview.com/chart/")
-            time.sleep(5)
-
-            # If we get redirected to signin, cookies didn't work
-            current_url = self.driver.current_url
-            if "signin" in current_url or "sign-in" in current_url:
-                logger.warning("Redirected to signin - cookies expired")
-                return False
-
-            # Check for chart elements (present only when logged in or on public charts)
-            try:
-                self.driver.find_element(By.CSS_SELECTOR, "canvas, .chart-container, .chart-markup-table")
-                logger.info("Chart loaded successfully - session valid")
-                return True
-            except NoSuchElementException:
-                pass
-
-            # Check page source for indicators of logged-in state
-            page_source = self.driver.page_source
-            if "chart" in page_source.lower() and "signin" not in current_url:
-                logger.info("Session appears valid (chart page loaded)")
-                return True
-
-            return False
-        except Exception as e:
-            logger.warning(f"Session verification error: {e}")
-            return False
 
     def _is_logged_in(self) -> bool:
         """Check if currently logged in to TradingView."""
@@ -135,12 +114,14 @@ class TradingViewBrowser:
             self.driver.get("https://www.tradingview.com/")
             time.sleep(3)
 
+            # Check for user menu (indicates logged in)
             try:
                 self.driver.find_element(By.CSS_SELECTOR, "[data-name='header-user-menu-button']")
                 return True
             except NoSuchElementException:
                 pass
 
+            # Alternative check
             try:
                 self.driver.find_element(By.CSS_SELECTOR, ".tv-header__user-menu-button")
                 return True
@@ -157,11 +138,12 @@ class TradingViewBrowser:
         try:
             logger.info("Attempting credential-based login...")
             self.driver.get("https://www.tradingview.com/#signin")
-            time.sleep(5)
+            time.sleep(3)
 
             # Click "Email" sign-in option
-            wait = WebDriverWait(self.driver, 15)
+            wait = WebDriverWait(self.driver, 10)
 
+            # Look for email sign-in button
             email_buttons = self.driver.find_elements(
                 By.XPATH,
                 "//*[contains(text(), 'Email') or contains(text(), 'email')]"
@@ -169,7 +151,7 @@ class TradingViewBrowser:
             for btn in email_buttons:
                 try:
                     btn.click()
-                    time.sleep(2)
+                    time.sleep(1)
                     break
                 except Exception:
                     continue
@@ -186,45 +168,20 @@ class TradingViewBrowser:
             password_field.clear()
             password_field.send_keys(password)
 
-            # Click sign in - try multiple selectors
-            sign_in_selectors = [
-                "button[type='submit']",
-                "[class*='submitButton']",
-                "button[data-overflow-tooltip-text='Sign in']",
-            ]
-            clicked = False
-            for selector in sign_in_selectors:
-                try:
-                    btn = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    btn.click()
-                    clicked = True
-                    break
-                except Exception:
-                    continue
-
-            if not clicked:
-                # Try XPath as last resort
-                try:
-                    btn = self.driver.find_element(
-                        By.XPATH, "//button[contains(text(), 'Sign in') or contains(text(), 'Accedi')]"
-                    )
-                    btn.click()
-                    clicked = True
-                except Exception:
-                    pass
-
-            if not clicked:
-                logger.error("Could not find sign-in button")
-                return False
+            # Click sign in
+            sign_in_btn = self.driver.find_element(
+                By.CSS_SELECTOR, "button[type='submit']"
+            )
+            sign_in_btn.click()
 
             time.sleep(5)
 
-            # Handle 2FA if needed
+            # Check for 2FA prompt
             if self._handle_2fa():
                 logger.info("2FA handled")
 
             # Verify login
-            if self._verify_session_with_chart():
+            if self._is_logged_in():
                 self._save_cookies()
                 logger.info("Login successful")
                 return True
@@ -240,15 +197,21 @@ class TradingViewBrowser:
             return False
 
     def _handle_2fa(self) -> bool:
-        """Handle 2FA if prompted."""
+        """
+        Handle 2FA if prompted.
+        Returns True if 2FA was detected (user must handle manually in non-headless mode).
+        """
         try:
+            # Check if 2FA input is present
             tfa_input = self.driver.find_elements(
                 By.CSS_SELECTOR, "input[name='code'], input[placeholder*='code']"
             )
             if tfa_input:
                 logger.warning(
-                    "2FA detected! Run with headless=False for first login."
+                    "2FA detected! If running headless, you'll need to handle this manually. "
+                    "Consider running with headless=False for first login."
                 )
+                # In non-headless mode, wait for user to enter code
                 if not self.headless:
                     input("Press Enter after completing 2FA in the browser...")
                     return True
@@ -272,42 +235,27 @@ class TradingViewBrowser:
         """Restore cookies from file."""
         try:
             if not COOKIES_PATH.exists():
-                logger.warning(f"Cookie file not found: {COOKIES_PATH}")
                 return False
 
-            logger.info(f"Loading cookies from {COOKIES_PATH}")
-
-            # First navigate to the domain so we can set cookies
             self.driver.get("https://www.tradingview.com/")
-            time.sleep(3)
+            time.sleep(2)
 
             with open(COOKIES_PATH, "r") as f:
                 cookies = json.load(f)
 
-            logger.info(f"Found {len(cookies)} cookies to restore")
-
-            restored = 0
             for cookie in cookies:
                 try:
-                    # Clean up cookie for Selenium
+                    # Remove problematic fields
                     cookie.pop("sameSite", None)
                     cookie.pop("expiry", None)
                     self.driver.add_cookie(cookie)
-                    restored += 1
-                except Exception as e:
-                    logger.debug(f"Skipped cookie {cookie.get('name', '?')}: {e}")
+                except Exception:
                     continue
 
-            logger.info(f"Restored {restored}/{len(cookies)} cookies")
-
-            if restored == 0:
-                return False
-
-            # Refresh to apply cookies
             self.driver.refresh()
             time.sleep(3)
+            logger.info("Cookies restored")
             return True
-
         except Exception as e:
             logger.warning(f"Failed to restore cookies: {e}")
             return False
@@ -323,10 +271,7 @@ class TradingViewBrowser:
                 self._save_cookies()
             except Exception:
                 pass
-            try:
-                self.driver.quit()
-            except Exception:
-                pass
+            self.driver.quit()
             logger.info("Browser closed")
 
     def __enter__(self):
