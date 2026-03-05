@@ -3,6 +3,7 @@ Main scanner orchestrator: Coordinates browser, navigation, extraction, and data
 """
 
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import List, Dict, Callable, Optional
@@ -61,7 +62,7 @@ class TradingViewScanner:
     def __init__(
         self,
         headless: bool = True,
-        extraction_method: str = "dom",
+        extraction_method: str = "csv",
         use_database: bool = True,
         timeframe_filter: List[str] = None,
     ):
@@ -105,11 +106,26 @@ class TradingViewScanner:
         try:
             # Initialize components
             self._report_progress(0, total, "Initializing browser...")
-            self.browser = TradingViewBrowser(headless=self.headless)
-            self.navigator = ChartNavigator(self.browser.get_driver())
+
+            # Set up download directory for CSV extraction
+            self._download_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "..", "data", "downloads"
+            )
+            self._download_dir = os.path.abspath(self._download_dir)
+            os.makedirs(self._download_dir, exist_ok=True)
+
+            self.browser = TradingViewBrowser(
+                headless=self.headless,
+                download_dir=self._download_dir,
+            )
+            self.navigator = ChartNavigator(
+                self.browser.get_driver(),
+                download_dir=self._download_dir,
+            )
 
             # Only init OCR extractor if needed
-            if self.extraction_method != "dom":
+            if self.extraction_method in ("ocr", "ai_vision"):
                 self.extractor = ContRateExtractor(method=self.extraction_method)
 
             if self.use_database:
@@ -123,15 +139,6 @@ class TradingViewScanner:
 
             # Dismiss any popups
             self.navigator.dismiss_popups()
-
-            # Open Data Window for DOM extraction
-            if self.extraction_method == "dom":
-                self._report_progress(0, total, "Opening Data Window...")
-                if not self.navigator.open_data_window():
-                    logger.warning(
-                        "Could not auto-open Data Window, "
-                        "will try on first chart load"
-                    )
 
             # Iterate through all combinations
             current = 0
@@ -211,10 +218,9 @@ class TradingViewScanner:
                 self.navigator.dismiss_popups()
 
                 # Extract Cont. Rate based on method
-                if self.extraction_method == "dom":
-                    # DOM extraction: fast & accurate with built-in polling
-                    self.navigator.open_data_window()
-                    cont_rate, confidence = self.navigator.get_cont_rate_from_dom(
+                if self.extraction_method == "csv":
+                    # CSV extraction: download chart data, parse last row
+                    cont_rate, confidence = self.navigator.get_cont_rate_from_csv(
                         asset_name=asset_name, timeframe=tf_label
                     )
                 else:
