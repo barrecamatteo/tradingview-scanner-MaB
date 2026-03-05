@@ -212,10 +212,8 @@ class TradingViewScanner:
 
                 # Extract Cont. Rate based on method
                 if self.extraction_method == "dom":
-                    # DOM extraction: fast & accurate
-                    # Try to open Data Window if not already open
+                    # DOM extraction: fast & accurate with built-in polling
                     self.navigator.open_data_window()
-                    time.sleep(1)  # Brief wait for Data Window to populate
                     cont_rate, confidence = self.navigator.get_cont_rate_from_dom()
                 else:
                     # OCR/AI Vision fallback
