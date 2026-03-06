@@ -53,8 +53,8 @@ ASSETS = {
         {"symbol": "OANDA:XPTUSD", "name": "XPTUSD"},
     ],
     "Indices": [
-        {"symbol": "FXCM:SPX500", "name": "SPX500"},
-        {"symbol": "FXCM:NAS100", "name": "NAS100"},
+        {"symbol": "SPX500", "name": "SPX500"},
+        {"symbol": "NAS100", "name": "NAS100"},
     ],
 }
 
