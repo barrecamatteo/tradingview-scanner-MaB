@@ -239,19 +239,21 @@ class ChartNavigator:
     def get_cont_rate_from_csv(
         self, asset_name: str = "", timeframe: str = "",
         max_download_wait: int = 30
-    ) -> Tuple[Optional[float], float]:
-        """Extract Continuation Rate by downloading chart data as CSV.
+    ) -> Tuple[Optional[float], float, Optional[int], Optional[int]]:
+        """Extract Continuation Rate, Mode, and Status by downloading chart data as CSV.
 
         Flow:
         1. Open the save/load dropdown menu (top right near "Save")
         2. Click "Download chart data..."
         3. Click "Download" in the dialog
-        4. Parse CSV: last row of "Continuation Rate" column
+        4. Parse CSV: last row of "Continuation Rate", "Mode", "Status" columns
         5. Clean up downloaded file
 
         Returns:
-            Tuple of (cont_rate, confidence).
+            Tuple of (cont_rate, confidence, mode, status_code).
             confidence is 1.0 for CSV extraction (always accurate).
+            mode: 1=Uptrend, -1=Downtrend, None if not found.
+            status_code: 0-8, None if not found.
         """
         csv_path = None
         try:
@@ -285,25 +287,25 @@ class ChartNavigator:
                 self._save_debug_screenshot(asset_name, timeframe)
                 return None, 0.0
 
-            # Step 5: Parse CSV and extract Continuation Rate
-            cont_rate = self._parse_csv_cont_rate(csv_path)
+            # Step 5: Parse CSV and extract Continuation Rate + Mode + Status
+            cont_rate, mode, status_code = self._parse_csv_data(csv_path)
             if cont_rate is not None:
                 logger.info(
                     f"CSV extraction: {asset_name}@{timeframe} "
-                    f"Continuation Rate = {cont_rate}"
+                    f"Continuation Rate = {cont_rate}, Mode = {mode}, Status = {status_code}"
                 )
-                return cont_rate, 1.0
+                return cont_rate, 1.0, mode, status_code
             else:
                 logger.warning(
                     f"Could not find Continuation Rate in CSV "
                     f"for {asset_name}@{timeframe}"
                 )
-                return None, 0.0
+                return None, 0.0, mode, status_code
 
         except Exception as e:
             logger.error(f"CSV extraction error: {e}")
             self._save_debug_screenshot(asset_name, timeframe)
-            return None, 0.0
+            return None, 0.0, None, None
 
         finally:
             # Clean up downloaded CSV
@@ -519,8 +521,12 @@ class ChartNavigator:
 
         return None
 
-    def _parse_csv_cont_rate(self, csv_path: str) -> Optional[float]:
-        """Parse the downloaded CSV and extract the last Continuation Rate value."""
+    def _parse_csv_data(self, csv_path: str) -> Tuple[Optional[float], Optional[int], Optional[int]]:
+        """Parse the downloaded CSV and extract Continuation Rate, Mode, and Status.
+
+        Returns:
+            Tuple of (cont_rate, mode, status_code).
+        """
         try:
             with open(csv_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
@@ -528,14 +534,20 @@ class ChartNavigator:
 
             if not rows:
                 logger.warning("CSV file is empty")
-                return None
+                return None, None, None
 
-            # Find the Continuation Rate column
+            # Find columns
             cont_rate_col = None
+            mode_col = None
+            status_col = None
             for col_name in rows[0].keys():
-                if "continuation" in col_name.lower() and "rate" in col_name.lower():
+                col_lower = col_name.lower().strip()
+                if "continuation" in col_lower and "rate" in col_lower:
                     cont_rate_col = col_name
-                    break
+                elif col_lower == "mode":
+                    mode_col = col_name
+                elif col_lower == "status":
+                    status_col = col_name
 
             if not cont_rate_col:
                 available = list(rows[0].keys())
@@ -543,28 +555,56 @@ class ChartNavigator:
                     f"No 'Continuation Rate' column found. "
                     f"Available columns: {available}"
                 )
-                return None
+                return None, None, None
 
-            # Get the last non-empty value (scan from bottom up)
+            # Extract Continuation Rate: last non-empty value (usually only last row)
+            cont_rate = None
             for row in reversed(rows):
                 value = row.get(cont_rate_col, "").strip()
                 if value and value.lower() not in ("", "nan", "n/a", "null"):
                     try:
-                        cont_rate = float(value)
-                        if 0 <= cont_rate <= 100:
-                            return round(cont_rate, 1)
+                        cr = float(value)
+                        if 0 <= cr <= 100:
+                            cont_rate = round(cr, 1)
+                            break
                         else:
-                            logger.warning(f"Cont Rate {cont_rate} outside 0-100")
-                            return None
+                            logger.warning(f"Cont Rate {cr} outside 0-100")
                     except ValueError:
                         continue
 
-            logger.warning("No valid Continuation Rate value found in CSV")
-            return None
+            # Extract Mode: last non-empty value
+            mode = None
+            if mode_col:
+                for row in reversed(rows):
+                    value = row.get(mode_col, "").strip()
+                    if value and value.lower() not in ("", "nan", "n/a", "null"):
+                        try:
+                            mode = int(float(value))
+                            break
+                        except ValueError:
+                            continue
+
+            # Extract Status: last non-empty value
+            status_code = None
+            if status_col:
+                for row in reversed(rows):
+                    value = row.get(status_col, "").strip()
+                    if value and value.lower() not in ("", "nan", "n/a", "null"):
+                        try:
+                            status_code = int(float(value))
+                            break
+                        except ValueError:
+                            continue
+
+            if cont_rate is None:
+                logger.warning("No valid Continuation Rate value found in CSV")
+
+            logger.debug(f"CSV parsed: CR={cont_rate}, Mode={mode}, Status={status_code}")
+            return cont_rate, mode, status_code
 
         except Exception as e:
             logger.error(f"Error parsing CSV: {e}")
-            return None
+            return None, None, None
 
     def _clean_downloads(self):
         """Remove any existing CSV files from the download directory."""
