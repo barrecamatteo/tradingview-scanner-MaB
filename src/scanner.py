@@ -32,6 +32,8 @@ class ScanResult:
         confidence: float = 0.0,
         status: str = "success",
         error: str = None,
+        mode: Optional[int] = None,
+        status_code: Optional[int] = None,
     ):
         self.asset = asset
         self.category = category
@@ -40,6 +42,8 @@ class ScanResult:
         self.confidence = confidence
         self.status = status
         self.error = error
+        self.mode = mode           # 1=Uptrend, -1=Downtrend
+        self.status_code = status_code  # 0-8 indicator phase
 
     def to_dict(self) -> Dict:
         return {
@@ -50,6 +54,8 @@ class ScanResult:
             "confidence": self.confidence,
             "status": self.status,
             "error_message": self.error,
+            "mode": self.mode,
+            "status_code": self.status_code,
         }
 
 
@@ -235,13 +241,15 @@ class TradingViewScanner:
                 self.navigator.dismiss_popups()
 
                 # Extract Cont. Rate based on method
+                mode = None
+                status_code = None
                 if self.extraction_method == "csv":
                     # CSV extraction: download chart data, parse last row
-                    cont_rate, confidence = self.navigator.get_cont_rate_from_csv(
+                    cont_rate, confidence, mode, status_code = self.navigator.get_cont_rate_from_csv(
                         asset_name=asset_name, timeframe=tf_label
                     )
                 else:
-                    # OCR/AI Vision fallback
+                    # OCR/AI Vision fallback (no mode/status)
                     screenshot = self.navigator.get_analysis_panel_screenshot()
                     cont_rate, confidence = self.extractor.extract_cont_rate(
                         screenshot,
@@ -256,6 +264,8 @@ class TradingViewScanner:
                         timeframe=tf_label,
                         cont_rate=cont_rate,
                         confidence=confidence,
+                        mode=mode,
+                        status_code=status_code,
                     )
                 elif attempt < retry_count - 1:
                     logger.warning(
@@ -289,6 +299,8 @@ class TradingViewScanner:
                 confidence=result.confidence,
                 status=result.status,
                 error_message=result.error,
+                mode=result.mode,
+                status_code=result.status_code,
             )
 
             # Add to history
@@ -299,6 +311,8 @@ class TradingViewScanner:
                 cont_rate=result.cont_rate,
                 confidence=result.confidence,
                 scan_batch_id=scan_id,
+                mode=result.mode,
+                status_code=result.status_code,
             )
         except Exception as e:
             logger.error(
