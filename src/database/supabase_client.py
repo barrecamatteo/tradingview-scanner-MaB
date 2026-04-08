@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS continuation_rates (
     confidence DECIMAL(3,2) DEFAULT 0,
     status VARCHAR(20) DEFAULT 'success',
     error_message TEXT,
+    mode SMALLINT,         -- 1=Uptrend, -1=Downtrend
+    status_code SMALLINT,  -- 0-8 indicator phase
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(asset, timeframe)
 );
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS continuation_rates_history (
     timeframe VARCHAR(10) NOT NULL,
     cont_rate DECIMAL(5,2),
     confidence DECIMAL(3,2) DEFAULT 0,
+    mode SMALLINT,
+    status_code SMALLINT,
     scan_batch_id UUID,
     scanned_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -118,6 +122,8 @@ class SupabaseDB:
         confidence: float = 0.0,
         status: str = "success",
         error_message: str = None,
+        mode: Optional[int] = None,
+        status_code: Optional[int] = None,
     ):
         """Insert or update a continuation rate."""
         data = {
@@ -128,6 +134,8 @@ class SupabaseDB:
             "confidence": confidence,
             "status": status,
             "error_message": error_message,
+            "mode": mode,
+            "status_code": status_code,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self.client.table("continuation_rates").upsert(
@@ -158,6 +166,8 @@ class SupabaseDB:
         cont_rate: Optional[float],
         confidence: float = 0.0,
         scan_batch_id: str = None,
+        mode: Optional[int] = None,
+        status_code: Optional[int] = None,
     ):
         """Add a historical record."""
         self.client.table("continuation_rates_history").insert({
@@ -166,6 +176,8 @@ class SupabaseDB:
             "timeframe": timeframe,
             "cont_rate": cont_rate,
             "confidence": confidence,
+            "mode": mode,
+            "status_code": status_code,
             "scan_batch_id": scan_batch_id,
             "scanned_at": datetime.now(timezone.utc).isoformat(),
         }).execute()
