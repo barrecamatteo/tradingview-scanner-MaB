@@ -1,4 +1,4 @@
-name: 3x Week Scan (4H/1H/15min)
+name: Alternate Day Scan (4H/15min)
 
 on:
   # Manual trigger
@@ -7,9 +7,9 @@ on:
       timeframes:
         description: 'Timeframes to scan (space-separated)'
         required: false
-        default: '4H 1H 15min'
+        default: '4H 15min'
 
-  # Scheduled: Mon-Wed-Fri at 03:30 UTC (04:30 Rome)
+  # Scheduled: Every other day at 03:30 UTC (04:30 Rome) — Mon-Wed-Fri
   schedule:
     - cron: '30 3 * * 1,3,5'
 
@@ -53,9 +53,9 @@ jobs:
           echo "$TV_COOKIES" | base64 -d > data/tv_cookies.json
           echo "Cookies restored to data/tv_cookies.json"
 
-      - name: Run weekly scan (4H/1H/15min)
+      - name: Run alternate day scan (4H/15min)
         run: |
-          python run_scan.py --timeframes ${{ github.event.inputs.timeframes || '4H 1H 15min' }} --method csv
+          python run_scan.py --timeframes ${{ github.event.inputs.timeframes || '4H 15min' }} --method csv
 
       - name: Upload debug screenshots
         if: always()
