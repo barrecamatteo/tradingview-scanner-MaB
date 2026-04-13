@@ -9,19 +9,24 @@ on:
         required: false
         default: '5min 1min'
 
-  # Scheduled: Lun-Ven alle 04:00 UTC (06:00 CEST / 05:00 CET)
+  # Scheduled: Lun-Ven alle 03:55 UTC → esecuzione effettiva ~04:00 UTC
+  # = 06:00 CEST (estivo) / 05:00 CET (invernale)
   # Ultimo scanner della sequenza mattutina.
   #
-  # Sequenza completa (gap 60 min tra un cron e l'altro):
-  #   02:00 UTC → scheduled_scan  (4H + 15min)
-  #   03:00 UTC → hourly_1h_scan  (1H mattutino)
-  #   04:00 UTC → daily_scan      (questo file, 5min + 1min)
-  #   12:00 UTC → hourly_1h_scan  (1H pomeridiano)
+  # PERCHÉ :55 e non :00:
+  # GitHub Actions ha un ritardo noto sui cron "all'ora esatta" perché sono i
+  # minuti di maggior carico globale. Spostando a :55 del minuto precedente
+  # il workflow parte entro 2-5 min dallo schedulato invece di 30-60 min.
   #
-  # Lo scan gira solo lun-ven perché il mercato forex è chiuso nel weekend
-  # (no senso consumare minuti GitHub Actions quando non ci sono nuovi tick).
+  # Sequenza completa (gap 60 min, durata reale ~15-20 min):
+  #   01:55 UTC → scheduled_scan  (4H + 15min)
+  #   02:55 UTC → hourly_1h_scan  (1H mattutino)
+  #   03:55 UTC → daily_scan      (questo file, 5min + 1min)
+  #   11:55 UTC → hourly_1h_scan  (1H pomeridiano)
+  #
+  # Solo lun-ven perché il mercato forex è chiuso nel weekend.
   schedule:
-    - cron: '0 4 * * 1-5'
+    - cron: '55 3 * * 1-5'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}
