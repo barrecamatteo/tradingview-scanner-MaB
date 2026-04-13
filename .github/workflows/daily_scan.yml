@@ -9,9 +9,19 @@ on:
         required: false
         default: '5min 1min'
 
-  # Scheduled: Every day at 05:00 UTC (06:00 Rome)
+  # Scheduled: Lun-Ven alle 04:00 UTC (06:00 CEST / 05:00 CET)
+  # Ultimo scanner della sequenza mattutina.
+  #
+  # Sequenza completa (gap 60 min tra un cron e l'altro):
+  #   02:00 UTC → scheduled_scan  (4H + 15min)
+  #   03:00 UTC → hourly_1h_scan  (1H mattutino)
+  #   04:00 UTC → daily_scan      (questo file, 5min + 1min)
+  #   12:00 UTC → hourly_1h_scan  (1H pomeridiano)
+  #
+  # Lo scan gira solo lun-ven perché il mercato forex è chiuso nel weekend
+  # (no senso consumare minuti GitHub Actions quando non ci sono nuovi tick).
   schedule:
-    - cron: '0 5 * * *'
+    - cron: '0 4 * * 1-5'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}
