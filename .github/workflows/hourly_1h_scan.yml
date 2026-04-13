@@ -9,10 +9,23 @@ on:
         required: false
         default: '1H'
 
-  # Scheduled: Twice daily at 05:00 and 11:00 UTC (06:00 and 12:00 Rome)
+  # Scheduled: Lun-Ven due volte al giorno
+  #   03:00 UTC (05:00 CEST / 04:00 CET) → run mattutino
+  #   12:00 UTC (14:00 CEST / 13:00 CET) → run pomeridiano
+  #
+  # Sequenza completa (gap 60 min tra un cron e l'altro, > 35-40 min di durata reale):
+  #   02:00 UTC → scheduled_scan  (4H + 15min)
+  #   03:00 UTC → hourly_1h_scan  (questo file, 1H mattutino)
+  #   04:00 UTC → daily_scan      (5min + 1min)
+  #   12:00 UTC → hourly_1h_scan  (questo file, 1H pomeridiano)
+  #
+  # NOTA ora legale: gli orari italiani slittano di 1h indietro in inverno (CET).
+  # Vincolo dell'utente: tutti gli scan mattutini devono finire entro le 09:00 IT
+  # sia in estate che in inverno. Con questo calendario l'ultimo scan mattutino
+  # (daily_scan a 04:00 UTC) finisce verso 06:40 IT in estate, 05:40 IT in inverno.
   schedule:
-    - cron: '0 5 * * 1-5'
-    - cron: '0 11 * * 1-5'
+    - cron: '0 3 * * 1-5'
+    - cron: '0 12 * * 1-5'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}
