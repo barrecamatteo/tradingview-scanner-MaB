@@ -9,22 +9,25 @@ on:
         required: false
         default: '4H 15min'
 
-  # Scheduled: Lun-Ven alle 02:00 UTC (04:00 Rome CEST estivo / 03:00 CET invernale)
-  # Primo scanner della sequenza mattutina — è il più lento (4H+15min, molti asset)
-  # quindi parte per primo per dare spazio ai successivi.
+  # Scheduled: Lun-Ven alle 01:55 UTC → esecuzione effettiva ~02:00 UTC
+  # = 04:00 Rome CEST (estivo) / 03:00 CET (invernale)
   #
-  # Sequenza completa (gap 60 min tra un cron e l'altro, > 35-40 min di durata reale):
-  #   02:00 UTC → scheduled_scan  (questo file, 4H + 15min)
-  #   03:00 UTC → hourly_1h_scan  (1H, run mattutino)
-  #   04:00 UTC → daily_scan      (5min + 1min)
-  #   12:00 UTC → hourly_1h_scan  (1H, run pomeridiano)
+  # PERCHÉ :55 e non :00:
+  # GitHub Actions ha un ritardo noto sui cron schedulati "all'ora esatta"
+  # (es. 0 2, 0 3, 0 12) perché sono i minuti di maggior carico globale.
+  # Un cron "0 12" può partire con 30-60 min di ritardo. Spostandolo a :55
+  # del minuto precedente si finisce in una coda molto meno affollata e
+  # il workflow parte entro 2-5 min, risultando effettivamente ~02:00 UTC.
+  #
+  # Sequenza completa (gap 60 min, durata reale ~15-20 min):
+  #   01:55 UTC → scheduled_scan  (questo file, 4H + 15min)
+  #   02:55 UTC → hourly_1h_scan  (1H, run mattutino)
+  #   03:55 UTC → daily_scan      (5min + 1min)
+  #   11:55 UTC → hourly_1h_scan  (1H, run pomeridiano)
   #
   # NOTA ora legale: gli orari italiani slittano di 1h indietro in inverno (CET).
-  # Vincolo operativo dell'utente: tutti gli scan mattutini DEVONO finire entro
-  # le 09:00 italiano sia in estate che in inverno — con questo calendario,
-  # l'ultimo scan mattutino finisce verso 06:40 IT in estate, 05:40 IT in inverno.
   schedule:
-    - cron: '0 2 * * 1-5'
+    - cron: '55 1 * * 1-5'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}
