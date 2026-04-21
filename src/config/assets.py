@@ -45,6 +45,7 @@ ASSETS = {
         {"symbol": "OANDA:GBPUSD", "name": "GBPUSD"},
     ],
     "Crypto": [
+        {"symbol": "BITSTAMP:BTCUSD", "name": "BTCUSD"},
         {"symbol": "BITSTAMP:ETHUSD", "name": "ETHUSD"},
     ],
     "Commodities": [
