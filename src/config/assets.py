@@ -57,8 +57,10 @@ ASSETS = {
         # FP Markets cash CFD — gli unici tradabili dall'utente sul suo broker.
         # Sostituiscono i vecchi simboli generici "SPX500"/"NAS100" (risolti da OANDA),
         # che non riflettevano il prezzo effettivo eseguito.
-        {"symbol": "FP_MARKETS:US500", "name": "US500"},
-        {"symbol": "FP_MARKETS:US100", "name": "US100"},
+        # Prefisso TradingView corretto: FPMARKETS (senza underscore) — verificato
+        # via TV Symbol Search API (risultato: "FPMARKETS:US500 — US 500 Index Cash").
+        {"symbol": "FPMARKETS:US500", "name": "US500"},
+        {"symbol": "FPMARKETS:US100", "name": "US100"},
     ],
 }
 
