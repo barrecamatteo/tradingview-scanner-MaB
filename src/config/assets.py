@@ -54,8 +54,11 @@ ASSETS = {
         {"symbol": "OANDA:XPTUSD", "name": "XPTUSD"},
     ],
     "Indices": [
-        {"symbol": "SPX500", "name": "SPX500"},
-        {"symbol": "NAS100", "name": "NAS100"},
+        # FP Markets cash CFD — gli unici tradabili dall'utente sul suo broker.
+        # Sostituiscono i vecchi simboli generici "SPX500"/"NAS100" (risolti da OANDA),
+        # che non riflettevano il prezzo effettivo eseguito.
+        {"symbol": "FP_MARKETS:US500", "name": "US500"},
+        {"symbol": "FP_MARKETS:US100", "name": "US100"},
     ],
 }
 
