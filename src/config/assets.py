@@ -9,11 +9,13 @@ TIMEFRAMES = {
     "15min": "15",
     "5min": "5",
     "1min": "1",
+    "1D": "D",
 }
 
 # Timeframe groups for different scan schedules
 WEEKLY_TIMEFRAMES = ["4H", "1H", "15min"]
 DAILY_TIMEFRAMES = ["5min", "1min"]
+DAILY_TF_TIMEFRAMES = ["1D"]
 
 # Assets organized by category
 ASSETS = {
