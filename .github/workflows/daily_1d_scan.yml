@@ -1,0 +1,87 @@
+name: Daily Scan (1D)
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      timeframes:
+        description: 'Timeframes to scan (space-separated)'
+        required: false
+        default: '1D'
+
+  # Scheduled: Lun-Ven alle 00:55 UTC → esecuzione effettiva ~01:00 UTC
+  # = 02:00 Rome CEST (estivo) / 01:00 CET (invernale)
+  #
+  # Slot scelto perché:
+  #  - candela 1D forex chiude alle 21:00/22:00 UTC (OANDA, FXCM) → garantito chiusa
+  #  - 1 ora prima di scheduled_scan (01:55 UTC) → nessun overlap con altri scanner
+  #  - 1D scan è leggero (1 timeframe), gap di 60 min è abbondante
+  #
+  # PERCHÉ :55 e non :00:
+  # GitHub Actions ha un ritardo noto sui cron schedulati "all'ora esatta"
+  # (es. `0 0`, `0 1`) perché sono i minuti di maggior carico globale.
+  # Spostando i cron a `:55` del minuto precedente la coda è meno affollata
+  # e il workflow parte entro 2-5 min, risultando effettivamente ~ora tonda successiva.
+  #
+  # Sequenza completa (gap ≥60 min, durata reale ~15-20 min):
+  #   00:55 UTC → daily_1d_scan   (questo file, 1D)
+  #   01:55 UTC → scheduled_scan  (4H + 15min)
+  #   02:55 UTC → hourly_1h_scan  (1H, run mattutino)
+  #   03:55 UTC → daily_scan      (5min + 1min)
+  #   12:25 UTC → hourly_1h_scan  (1H, run pomeridiano)
+  #
+  # NOTA ora legale: gli orari italiani slittano di 1h indietro in inverno (CET).
+  schedule:
+    - cron: '55 0 * * 1-5'
+
+env:
+  TV_USERNAME: ${{ secrets.TV_USERNAME }}
+  TV_PASSWORD: ${{ secrets.TV_PASSWORD }}
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  TV_COOKIES: ${{ secrets.TV_COOKIES }}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install ChromeDriver
+        uses: nanasess/setup-chromedriver@v2
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Restore cookies
+        run: |
+          mkdir -p data
+          echo "$TV_COOKIES" | base64 -d > data/tv_cookies.json
+          echo "Cookies restored to data/tv_cookies.json"
+
+      - name: Run 1D scan
+        run: |
+          python run_scan.py --timeframes ${{ github.event.inputs.timeframes || '1D' }} --method csv
+
+      - name: Upload debug screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1d-scan-screenshots
+          path: data/screenshots/
+          retention-days: 7
