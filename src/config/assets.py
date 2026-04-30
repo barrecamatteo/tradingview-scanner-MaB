@@ -2,14 +2,20 @@
 Asset list and timeframe configuration for TradingView scraper.
 """
 
-# All timeframes (TradingView interval values)
+# All timeframes (TradingView interval values).
+# IMPORTANTE: il valore viene digitato sul chart TV via Selenium send_keys() per
+# triggerare il "Quick Timeframe Picker" (numero + Enter). I valori puramente
+# numerici ("240", "60", "15", "5", "1") TV li interpreta come minuti.
+# Per il daily NON funziona "D" da solo (TV non triggera il picker), serve "1D"
+# nel formato <numero><unità>. Verificato su Apr 30 2026 dopo che 25/26 asset 1D
+# avevano valori identici a 1H → segno che _change_timeframe("D") falliva.
 TIMEFRAMES = {
     "4H": "240",
     "1H": "60",
     "15min": "15",
     "5min": "5",
     "1min": "1",
-    "1D": "D",
+    "1D": "1D",
 }
 
 # Timeframe groups for different scan schedules
