@@ -1,4 +1,4 @@
-name: Alternate Day Scan (4H/15min)
+name: Daily Scan (4H/15min)
 
 on:
   # Manual trigger
