@@ -9,24 +9,27 @@ on:
         required: false
         default: '5min 1min'
 
-  # Scheduled: Lun-Ven alle 03:55 UTC → esecuzione effettiva ~04:00 UTC
-  # = 06:00 CEST (estivo) / 05:00 CET (invernale)
+  # AGGIORNAMENTO 2026-05-27: GitHub Actions free tier mostra ritardo SISTEMATICO
+  # di ~4 ore. Anticipiamo per finire entro le 09:00 ora italiana (CEST).
+  #
+  # Scheduled: Lun-Ven alle 01:33 UTC → con ritardo GH ~4h, reale ~05:33 UTC
+  # = 07:33 CEST (estivo) / 06:33 CET (invernale). Finisce entro 07:53 CEST.
   # Ultimo scanner della sequenza mattutina.
   #
-  # PERCHÉ :55 e non :00:
-  # GitHub Actions ha un ritardo noto sui cron "all'ora esatta" perché sono i
-  # minuti di maggior carico globale. Spostando a :55 del minuto precedente
-  # il workflow parte entro 2-5 min dallo schedulato invece di 30-60 min.
+  # Minuti sparsi (:33) per evitare la coda dei cron "all'ora tonda" (:00, :15, :30, :45)
+  # che GitHub privilegia con maggior ritardo per carico globale.
   #
-  # Sequenza completa (gap 60 min, durata reale ~15-20 min):
-  #   01:55 UTC → scheduled_scan  (4H + 15min)
-  #   02:55 UTC → hourly_1h_scan  (1H mattutino)
-  #   03:55 UTC → daily_scan      (questo file, 5min + 1min)
-  #   11:55 UTC → hourly_1h_scan  (1H pomeridiano)
+  # Sequenza completa mattutina (ritardo GH ~4h, runtime ~15-20 min):
+  #   23:25 UTC (sera prima) → daily_1d_scan   (1D)                  → reale ~05:25 CEST
+  #   00:15 UTC              → scheduled_scan  (4H + 15min)          → reale ~06:15 CEST
+  #   00:47 UTC              → hourly_1h_scan  (1H mattutino)        → reale ~06:47 CEST
+  #   01:33 UTC              → daily_scan      (questo file, 5min+1min) → reale ~07:33 CEST → finisce 07:53 ✓ < 09:00
+  #   07:47 UTC              → hourly_1h_scan  (1H pomeridiano)      → reale ~13:47 CEST
   #
   # Solo lun-ven perché il mercato forex è chiuso nel weekend.
+  # NOTA ora legale: gli orari italiani slittano di 1h indietro in inverno (CET).
   schedule:
-    - cron: '55 3 * * 1-5'
+    - cron: '33 1 * * 1-5'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}

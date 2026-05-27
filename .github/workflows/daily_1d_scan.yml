@@ -9,30 +9,28 @@ on:
         required: false
         default: '1D'
 
-  # Scheduled: Lun-Ven alle 00:55 UTC → esecuzione effettiva ~01:00 UTC
-  # = 02:00 Rome CEST (estivo) / 01:00 CET (invernale)
+  # AGGIORNAMENTO 2026-05-27: GitHub Actions free tier mostra ritardo SISTEMATICO
+  # di ~4 ore per i cron di questo repo. Anticipiamo tutta la sequenza per garantire
+  # che tutti gli scan mattutini siano completati entro le 09:00 ora italiana (CEST).
   #
-  # Slot scelto perché:
-  #  - candela 1D forex chiude alle 21:00/22:00 UTC (OANDA, FXCM) → garantito chiusa
-  #  - 1 ora prima di scheduled_scan (01:55 UTC) → nessun overlap con altri scanner
-  #  - 1D scan è leggero (1 timeframe), gap di 60 min è abbondante
+  # Scheduled: Dom-Gio alle 23:25 UTC (= sera prima del giorno target)
+  # → con ritardo GH ~4h, run reale ~03:25 UTC del giorno dopo = 05:25 CEST (estivo) / 04:25 CET (invernale)
+  # Finisce entro le 05:45 CEST. Candela 1D forex chiusa alle 21-22 UTC: ampio margine.
   #
-  # PERCHÉ :55 e non :00:
-  # GitHub Actions ha un ritardo noto sui cron schedulati "all'ora esatta"
-  # (es. `0 0`, `0 1`) perché sono i minuti di maggior carico globale.
-  # Spostando i cron a `:55` del minuto precedente la coda è meno affollata
-  # e il workflow parte entro 2-5 min, risultando effettivamente ~ora tonda successiva.
+  # Giorni 0-4 (dom-gio): domenica sera schedula il run di lunedì mattina,
+  # lunedì sera quello di martedì, ..., giovedì sera quello di venerdì.
+  # Venerdì sera NON serve (sabato mercato chiuso).
   #
-  # Sequenza completa (gap ≥60 min, durata reale ~15-20 min):
-  #   00:55 UTC → daily_1d_scan   (questo file, 1D)
-  #   01:55 UTC → scheduled_scan  (4H + 15min)
-  #   02:55 UTC → hourly_1h_scan  (1H, run mattutino)
-  #   03:55 UTC → daily_scan      (5min + 1min)
-  #   12:25 UTC → hourly_1h_scan  (1H, run pomeridiano)
+  # Sequenza completa mattutina (ritardo GH ~4h, runtime ~15-20 min):
+  #   23:25 UTC (sera prima) → daily_1d_scan   (questo file, 1D)        → reale ~05:25 CEST → finisce 05:45 CEST
+  #   00:15 UTC              → scheduled_scan  (4H + 15min)              → reale ~06:15 CEST → finisce 06:35 CEST
+  #   00:47 UTC              → hourly_1h_scan  (1H mattutino)            → reale ~06:47 CEST → finisce 07:07 CEST
+  #   01:33 UTC              → daily_scan      (5min + 1min)             → reale ~07:33 CEST → finisce 07:53 CEST ✓ < 09:00
+  #   07:47 UTC              → hourly_1h_scan  (1H pomeridiano)          → reale ~13:47 CEST
   #
   # NOTA ora legale: gli orari italiani slittano di 1h indietro in inverno (CET).
   schedule:
-    - cron: '55 0 * * 1-5'
+    - cron: '25 23 * * 0-4'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}

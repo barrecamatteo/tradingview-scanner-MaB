@@ -9,25 +9,22 @@ on:
         required: false
         default: '4H 15min'
 
-  # Scheduled: Lun-Ven alle 01:55 UTC → esecuzione effettiva ~02:00 UTC
-  # = 04:00 Rome CEST (estivo) / 03:00 CET (invernale)
+  # AGGIORNAMENTO 2026-05-27: GitHub Actions free tier mostra ritardo SISTEMATICO
+  # di ~4 ore. Anticipiamo per finire entro 09:00 ora italiana (CEST).
   #
-  # PERCHÉ :55 e non :00:
-  # GitHub Actions ha un ritardo noto sui cron schedulati "all'ora esatta"
-  # (es. 0 2, 0 3, 0 12) perché sono i minuti di maggior carico globale.
-  # Un cron "0 12" può partire con 30-60 min di ritardo. Spostandolo a :55
-  # del minuto precedente si finisce in una coda molto meno affollata e
-  # il workflow parte entro 2-5 min, risultando effettivamente ~02:00 UTC.
+  # Scheduled: Lun-Ven alle 00:15 UTC → con ritardo GH ~4h, reale ~04:15 UTC
+  # = 06:15 CEST (estivo) / 05:15 CET (invernale). Finisce entro 06:35 CEST.
   #
-  # Sequenza completa (gap 60 min, durata reale ~15-20 min):
-  #   01:55 UTC → scheduled_scan  (questo file, 4H + 15min)
-  #   02:55 UTC → hourly_1h_scan  (1H, run mattutino)
-  #   03:55 UTC → daily_scan      (5min + 1min)
-  #   11:55 UTC → hourly_1h_scan  (1H, run pomeridiano)
+  # Sequenza completa mattutina (ritardo GH ~4h, runtime ~15-20 min):
+  #   23:25 UTC (sera prima) → daily_1d_scan   (1D)                  → reale ~05:25 CEST
+  #   00:15 UTC              → scheduled_scan  (questo file, 4H+15min) → reale ~06:15 CEST
+  #   00:47 UTC              → hourly_1h_scan  (1H mattutino)         → reale ~06:47 CEST
+  #   01:33 UTC              → daily_scan      (5min + 1min)          → reale ~07:33 CEST ✓ < 09:00
+  #   07:47 UTC              → hourly_1h_scan  (1H pomeridiano)       → reale ~13:47 CEST
   #
   # NOTA ora legale: gli orari italiani slittano di 1h indietro in inverno (CET).
   schedule:
-    - cron: '55 1 * * 1-5'
+    - cron: '15 0 * * 1-5'
 
 env:
   TV_USERNAME: ${{ secrets.TV_USERNAME }}
