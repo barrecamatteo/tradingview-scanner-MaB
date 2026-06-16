@@ -203,25 +203,39 @@ class ChartNavigator:
         except Exception:
             pass
 
-    def _change_symbol(self, symbol: str) -> bool:
-        """Change the chart symbol using TradingView's symbol search.
-
-        Opens the symbol search dialog, types the symbol, and selects it.
-        Prima dismiss eventuali promo popup che potrebbero intercettare i click.
-        """
-        # Dismiss popup promo (Summer Sale, ecc.) PRIMA di tentare il click
-        self._dismiss_overlays()
-
+    def _current_chart_symbol(self) -> str:
+        """Estrae il simbolo attualmente caricato sul chart dalla URL TradingView.
+        Esempio: '...chart/?symbol=OANDA:USDJPY' -> 'OANDA:USDJPY'. None se non parse-abile."""
         try:
-            # Strategia primaria: keyboard shortcut Ctrl+K (resistente a UI changes
-            # e a overlay che intercettano click via mouse). NON dipende da
-            # CSS selectors mutevoli del bottone "Symbol search".
-            ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("k").key_up(Keys.CONTROL).perform()
-            time.sleep(1)
+            url = self.driver.current_url or ""
+            # TradingView mette il simbolo come query param 'symbol' anche dopo
+            # cambio via UI (l'history.replaceState aggiorna URL in tempo reale).
+            if "symbol=" in url:
+                part = url.split("symbol=", 1)[1].split("&", 1)[0]
+                # URL-decode i ':' che diventano '%3A'
+                return part.replace("%3A", ":")
+        except Exception:
+            pass
+        return ""
 
-            # Verifica se il search dialog si è aperto. Se non si è aperto,
-            # significa che il keyboard shortcut non ha funzionato (es. focus
-            # su input testuale o popup aperto). Riproviamo dopo dismiss + click.
+    def _open_symbol_search(self) -> bool:
+        """Apre il dialog 'Symbol Search' (non la search globale di Ctrl+K).
+
+        TradingView ha 2 search diverse:
+          - Ctrl+K = command palette / search globale (cerca indicators, layouts, news, ecc.) — NON utile
+          - Click sul bottone Symbol Search (o tasto '/') = dialog dedicato che CAMBIA il simbolo del chart
+
+        Strategia: prima il keyboard shortcut '/' (tasto dedicato symbol search,
+        più affidabile del Ctrl+K perché TradingView mappa '/' esattamente per
+        questo scopo). Fallback: JS click sul bottone header (dopo dismiss overlay).
+        """
+        # Strategia 1: keyboard '/' — shortcut dedicato symbol search di TradingView.
+        try:
+            # Assicura focus sul body (necessario perché '/' va al chart, non a un input)
+            self.driver.execute_script("if (document.activeElement) document.activeElement.blur();")
+            ActionChains(self.driver).send_keys("/").perform()
+            time.sleep(1)
+            # Verifica che il dialog si sia aperto
             try:
                 WebDriverWait(self.driver, 2).until(
                     EC.presence_of_element_located((
@@ -230,25 +244,58 @@ class ChartNavigator:
                         "input[placeholder*='Search'], input[placeholder*='Symbol']"
                     ))
                 )
+                return True
             except TimeoutException:
-                # Fallback: ridisma overlay + click diretto sul bottone via JS
-                # (bypassa l'intercettazione da parte di eventuali modal residui).
-                self._dismiss_overlays()
-                try:
-                    symbol_btn = self.driver.find_element(
+                pass
+        except Exception:
+            pass
+
+        # Strategia 2: JS click forzato sul bottone Symbol Search dell'header.
+        # JS click bypassa l'ElementClickInterceptedException da overlay residui.
+        self._dismiss_overlays()
+        try:
+            symbol_btn = self.driver.find_element(
+                By.CSS_SELECTOR,
+                "[id='header-toolbar-symbol-search'], "
+                "[data-name='symbol-search-input'], "
+                "[class*='symbolInput'], "
+                "[data-name='legend-source-item'] [class*='title']"
+            )
+            self.driver.execute_script("arguments[0].click();", symbol_btn)
+            time.sleep(1)
+            try:
+                WebDriverWait(self.driver, 3).until(
+                    EC.presence_of_element_located((
                         By.CSS_SELECTOR,
-                        "[data-name='legend-source-item'] [class*='title'], "
-                        "[id='header-toolbar-symbol-search'], "
-                        "[class*='symbolInput'], "
-                        "[data-name='symbol-search-input']"
-                    )
-                    # JS click forzato (ignora overlay invisibili a Selenium)
-                    self.driver.execute_script("arguments[0].click();", symbol_btn)
-                    time.sleep(1)
-                except NoSuchElementException:
-                    # Ultima chance: riprova Ctrl+K dopo dismiss
-                    ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("k").key_up(Keys.CONTROL).perform()
-                    time.sleep(1)
+                        "input[data-role='search'], input[class*='search'], "
+                        "input[placeholder*='Search'], input[placeholder*='Symbol']"
+                    ))
+                )
+                return True
+            except TimeoutException:
+                pass
+        except NoSuchElementException:
+            pass
+
+        return False
+
+    def _change_symbol(self, symbol: str) -> bool:
+        """Change the chart symbol using TradingView's symbol search.
+
+        Apre il symbol search dialog (NON la search globale Ctrl+K), digita il
+        simbolo, preme ENTER, e VERIFICA che il chart sia davvero cambiato
+        controllando l'URL post-cambio.
+        """
+        # Dismiss popup promo (Summer Sale, ecc.) PRIMA di tentare il click
+        self._dismiss_overlays()
+
+        symbol_before = self._current_chart_symbol()
+
+        try:
+            # Apre il dialog corretto (symbol search, non search globale)
+            if not self._open_symbol_search():
+                logger.error(f"Could not open symbol search dialog for {symbol}")
+                return False
 
             # Wait for search dialog/input to appear
             search_input = WebDriverWait(self.driver, 5).until(
@@ -263,7 +310,6 @@ class ChartNavigator:
 
             # Clear and type the symbol
             search_input.clear()
-            # Use the full symbol format (e.g., "FX:USDJPY")
             search_input.send_keys(symbol)
             time.sleep(2)  # Wait for search results
 
@@ -271,12 +317,42 @@ class ChartNavigator:
             search_input.send_keys(Keys.ENTER)
             time.sleep(2)
 
-            logger.info(f"Symbol changed to {symbol}")
+            # Verifica che il symbol nell'URL sia cambiato. Il chart loader
+            # TradingView aggiorna la URL via history.pushState quando il
+            # simbolo viene effettivamente caricato. Se l'URL non riflette
+            # il nuovo simbolo, il cambio è fallito silenziosamente.
+            symbol_after = self._current_chart_symbol()
+            target_token = symbol.split(":")[-1].upper()
+            if target_token and target_token not in symbol_after.upper():
+                logger.warning(
+                    f"Symbol change did NOT update URL: target={symbol}, "
+                    f"before={symbol_before}, after={symbol_after}. "
+                    f"Trying direct URL navigation as fallback."
+                )
+                # Fallback: navigate by URL. Funziona sempre ma perde il layout
+                # (TradingView ricarica il chart). Da usare solo se la UI fallisce.
+                # Chiudi eventuali dialog rimasti aperti.
+                try:
+                    ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+                    time.sleep(0.5)
+                except Exception:
+                    pass
+                base = self.driver.current_url.split("?")[0]
+                self.driver.get(f"{base}?symbol={symbol}")
+                time.sleep(3)
+                symbol_after = self._current_chart_symbol()
+                if target_token not in symbol_after.upper():
+                    logger.error(
+                        f"Symbol change FAILED even via URL navigation: "
+                        f"target={symbol}, current={symbol_after}"
+                    )
+                    return False
+
+            logger.info(f"Symbol changed to {symbol} (url shows: {symbol_after})")
             return True
 
         except Exception as e:
             logger.error(f"Failed to change symbol: {e}")
-            # Fallback: try closing any open dialog
             try:
                 ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
             except Exception:
