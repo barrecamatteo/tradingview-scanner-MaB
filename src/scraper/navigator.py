@@ -204,16 +204,35 @@ class ChartNavigator:
             pass
 
     def _current_chart_symbol(self) -> str:
-        """Estrae il simbolo attualmente caricato sul chart dalla URL TradingView.
-        Esempio: '...chart/?symbol=OANDA:USDJPY' -> 'OANDA:USDJPY'. None se non parse-abile."""
+        """Estrae il TICKER attualmente caricato sul chart.
+
+        Fonte primaria: document.title. TradingView aggiorna il <title> del tab
+        col ticker + prezzo correnti (es. 'USDJPY 156.42 ▲ ...') ad ogni cambio
+        simbolo, ANCHE quando si usa un layout salvato (in cui l'URL resta pulito
+        tipo /chart/KKDLn4WZ/ e NON contiene ?symbol=). Per questo il title è più
+        affidabile dell'URL come segnale di "simbolo davvero cambiato".
+
+        Fallback: query param 'symbol' nell'URL (per chart senza layout salvato).
+
+        Ritorna il primo token (il ticker, es. 'USDJPY'), uppercase. '' se ignoto.
+        """
+        # Fonte 1: document.title (robusta col layout salvato)
+        try:
+            title = self.driver.title or ""
+            # Formato tipico: "USDJPY 156.420 ▲ +0.21% ..." → primo token = ticker
+            token = title.strip().split(" ", 1)[0].split(":")[-1].upper()
+            # Filtra titoli non-chart (es. "TradingView" durante il loading)
+            if token and token.upper() != "TRADINGVIEW" and any(c.isalpha() for c in token):
+                return token
+        except Exception:
+            pass
+
+        # Fonte 2: URL query param (chart senza layout salvato)
         try:
             url = self.driver.current_url or ""
-            # TradingView mette il simbolo come query param 'symbol' anche dopo
-            # cambio via UI (l'history.replaceState aggiorna URL in tempo reale).
             if "symbol=" in url:
                 part = url.split("symbol=", 1)[1].split("&", 1)[0]
-                # URL-decode i ':' che diventano '%3A'
-                return part.replace("%3A", ":")
+                return part.replace("%3A", ":").split(":")[-1].upper()
         except Exception:
             pass
         return ""
@@ -315,23 +334,28 @@ class ChartNavigator:
 
             # Press Enter to select the first result
             search_input.send_keys(Keys.ENTER)
-            time.sleep(2)
 
-            # Verifica che il symbol nell'URL sia cambiato. Il chart loader
-            # TradingView aggiorna la URL via history.pushState quando il
-            # simbolo viene effettivamente caricato. Se l'URL non riflette
-            # il nuovo simbolo, il cambio è fallito silenziosamente.
-            symbol_after = self._current_chart_symbol()
+            # Verifica via document.title (NON via URL: con un layout salvato
+            # l'URL resta pulito e non riflette il cambio simbolo). Attendiamo
+            # ATTIVAMENTE fino a 6s che il title mostri il nuovo ticker, invece
+            # di un sleep fisso — più veloce nel caso comune (title aggiorna in
+            # ~1-2s) e robusto se TradingView è lento a renderizzare.
             target_token = symbol.split(":")[-1].upper()
-            if target_token and target_token not in symbol_after.upper():
+            changed = False
+            for _ in range(12):  # 12 × 0.5s = 6s max
+                if target_token in self._current_chart_symbol():
+                    changed = True
+                    break
+                time.sleep(0.5)
+
+            if not changed:
+                # Il symbol search UI non ha cambiato il chart. Fallback: URL
+                # navigation diretto (ricarica la pagina mantenendo il layout ID,
+                # più lento ma garantito). Usato SOLO quando la UI fallisce.
                 logger.warning(
-                    f"Symbol change did NOT update URL: target={symbol}, "
-                    f"before={symbol_before}, after={symbol_after}. "
-                    f"Trying direct URL navigation as fallback."
+                    f"Symbol change via UI non confermato (title='{self.driver.title[:40]}', "
+                    f"target={symbol}, before={symbol_before}). Fallback URL navigation."
                 )
-                # Fallback: navigate by URL. Funziona sempre ma perde il layout
-                # (TradingView ricarica il chart). Da usare solo se la UI fallisce.
-                # Chiudi eventuali dialog rimasti aperti.
                 try:
                     ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
                     time.sleep(0.5)
@@ -339,16 +363,20 @@ class ChartNavigator:
                     pass
                 base = self.driver.current_url.split("?")[0]
                 self.driver.get(f"{base}?symbol={symbol}")
-                time.sleep(3)
-                symbol_after = self._current_chart_symbol()
-                if target_token not in symbol_after.upper():
+                # Attendi che il title rifletta il cambio
+                for _ in range(16):  # 16 × 0.5s = 8s max per il reload completo
+                    if target_token in self._current_chart_symbol():
+                        changed = True
+                        break
+                    time.sleep(0.5)
+                if not changed:
                     logger.error(
                         f"Symbol change FAILED even via URL navigation: "
-                        f"target={symbol}, current={symbol_after}"
+                        f"target={symbol}, title={self.driver.title[:60]}"
                     )
                     return False
 
-            logger.info(f"Symbol changed to {symbol} (url shows: {symbol_after})")
+            logger.info(f"Symbol changed to {symbol} (title ticker: {self._current_chart_symbol()})")
             return True
 
         except Exception as e:
