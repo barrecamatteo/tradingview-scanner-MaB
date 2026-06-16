@@ -125,29 +125,130 @@ class ChartNavigator:
             logger.error(f"Navigation error for {symbol}@{interval}: {e}")
             return False
 
+    def _dismiss_overlays(self) -> None:
+        """Dismiss eventuali popup/modal promozionali TradingView (es. Summer Sale,
+        toast "claim it now") che intercettano i click sull'header toolbar.
+
+        Strategia in 3 layer:
+          1. Click sulla X di chiusura standard (selettori multipli noti).
+          2. ESC su body — chiude la maggior parte dei dialog HTML.
+          3. JS removal forzata di pattern noti come fallback finale.
+
+        Non solleva mai. Va chiamato all'inizio di ogni interazione con l'header.
+        """
+        # Layer 1: click su X di chiusura — selettori multipli per popup TV diversi
+        close_selectors = [
+            "button[data-name='close']",
+            "button[aria-label='Close']",
+            "button[aria-label='close']",
+            "[class*='closeButton'] button",
+            "[class*='close-button']",
+            "div[role='dialog'] button[class*='close']",
+            "div[data-dialog-name] button[class*='close']",
+        ]
+        for sel in close_selectors:
+            try:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                for el in elements:
+                    if el.is_displayed():
+                        try:
+                            self.driver.execute_script("arguments[0].click();", el)
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # Layer 2: ESC su body (chiude modal residui che catturano keyboard input)
+        try:
+            ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+            time.sleep(0.3)
+        except Exception:
+            pass
+
+        # Layer 3: JS removal di pattern noti — promo modal full-page + toast
+        # bottom-left "Summer sale awaits / Explore offers" che persistono dopo l'ESC.
+        try:
+            self.driver.execute_script(
+                """
+                // Modal promo full-page (Summer Sale, Black Friday, ecc.)
+                document.querySelectorAll('[class*="dialog-"][class*="promotional"], '
+                    + '[data-dialog-name*="promo"], '
+                    + 'div[class*="dialog-wrapper"] div[class*="dialog-"]:not([data-dialog-name="symbol-search"])'
+                ).forEach(function(el) {
+                    var txt = (el.textContent || '').toLowerCase();
+                    if (txt.includes('sale') || txt.includes('off') || txt.includes('claim') || txt.includes('offer')) {
+                        el.remove();
+                    }
+                });
+                // Toast notifications bottom-left
+                document.querySelectorAll('[class*="toast"], [class*="snackbar"], [class*="notification-banner"]').forEach(function(el) {
+                    var txt = (el.textContent || '').toLowerCase();
+                    if (txt.includes('sale') || txt.includes('offer') || txt.includes('claim')) {
+                        el.remove();
+                    }
+                });
+                // Backdrop overlay che intercetta i click
+                document.querySelectorAll('[class*="backdrop"], [class*="overlay-wrap"]').forEach(function(el) {
+                    if (el.style.position === 'fixed' || getComputedStyle(el).position === 'fixed') {
+                        // Solo se non è il dialog di symbol search
+                        if (!el.querySelector('input[data-role="search"]')) {
+                            el.remove();
+                        }
+                    }
+                });
+                """
+            )
+            time.sleep(0.2)
+        except Exception:
+            pass
+
     def _change_symbol(self, symbol: str) -> bool:
         """Change the chart symbol using TradingView's symbol search.
 
         Opens the symbol search dialog, types the symbol, and selects it.
+        Prima dismiss eventuali promo popup che potrebbero intercettare i click.
         """
+        # Dismiss popup promo (Summer Sale, ecc.) PRIMA di tentare il click
+        self._dismiss_overlays()
+
         try:
-            # Method 1: Click on the symbol name in the top-left
-            # The symbol input/button is typically the first clickable element
-            # in the chart header area
+            # Strategia primaria: keyboard shortcut Ctrl+K (resistente a UI changes
+            # e a overlay che intercettano click via mouse). NON dipende da
+            # CSS selectors mutevoli del bottone "Symbol search".
+            ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("k").key_up(Keys.CONTROL).perform()
+            time.sleep(1)
+
+            # Verifica se il search dialog si è aperto. Se non si è aperto,
+            # significa che il keyboard shortcut non ha funzionato (es. focus
+            # su input testuale o popup aperto). Riproviamo dopo dismiss + click.
             try:
-                symbol_btn = self.driver.find_element(
-                    By.CSS_SELECTOR,
-                    "[data-name='legend-source-item'] [class*='title'], "
-                    "[id='header-toolbar-symbol-search'], "
-                    "[class*='symbolInput'], "
-                    "[data-name='symbol-search-input']"
+                WebDriverWait(self.driver, 2).until(
+                    EC.presence_of_element_located((
+                        By.CSS_SELECTOR,
+                        "input[data-role='search'], input[class*='search'], "
+                        "input[placeholder*='Search'], input[placeholder*='Symbol']"
+                    ))
                 )
-                symbol_btn.click()
-                time.sleep(1)
-            except NoSuchElementException:
-                # Method 2: Use keyboard shortcut to open symbol search
-                ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("k").key_up(Keys.CONTROL).perform()
-                time.sleep(1)
+            except TimeoutException:
+                # Fallback: ridisma overlay + click diretto sul bottone via JS
+                # (bypassa l'intercettazione da parte di eventuali modal residui).
+                self._dismiss_overlays()
+                try:
+                    symbol_btn = self.driver.find_element(
+                        By.CSS_SELECTOR,
+                        "[data-name='legend-source-item'] [class*='title'], "
+                        "[id='header-toolbar-symbol-search'], "
+                        "[class*='symbolInput'], "
+                        "[data-name='symbol-search-input']"
+                    )
+                    # JS click forzato (ignora overlay invisibili a Selenium)
+                    self.driver.execute_script("arguments[0].click();", symbol_btn)
+                    time.sleep(1)
+                except NoSuchElementException:
+                    # Ultima chance: riprova Ctrl+K dopo dismiss
+                    ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("k").key_up(Keys.CONTROL).perform()
+                    time.sleep(1)
 
             # Wait for search dialog/input to appear
             search_input = WebDriverWait(self.driver, 5).until(
@@ -187,6 +288,11 @@ class ChartNavigator:
 
         TradingView accepts typed numbers when the chart has focus.
         """
+        # Dismiss popup promo prima del click sul canvas: senza focus sul chart,
+        # i send_keys successivi vanno persi nel popup invece di trigger il
+        # timeframe input di TradingView.
+        self._dismiss_overlays()
+
         try:
             # Click on the chart area first to ensure it has focus
             try:
